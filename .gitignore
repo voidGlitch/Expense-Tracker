@@ -15,3 +15,5 @@ Thumbs.db
 npm-debug.log*
 coverage/
 .vite/
+server/.env
+client/.env
