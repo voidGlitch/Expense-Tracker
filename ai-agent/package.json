@@ -1,0 +1,17 @@
+{
+  "name": "@expense/ai-agent",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "AI Agent for Expense Manager - Budget analysis and spending recommendations",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "vitest run",
+    "dev": "node src/index.js"
+  },
+  "dependencies": {
+    "@expense/shared": "*"
+  },
+  "devDependencies": {
+    "vitest": "4.1.11"
+  }
+}

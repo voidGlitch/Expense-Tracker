@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <rect width="64" height="64" rx="12" fill="#0ea5e9"/>
+  <path d="M32 16c-2.5 0-4.5 2-4.5 4.5V22h-7c-1.5 0-2.5 1-2.5 2.5v23c0 1.5 1 2.5 2.5 2.5h23c1.5 0 2.5-1 2.5-2.5v-23c0-1.5-1-2.5-2.5-2.5h-7v-1.5c0-2.5-2-4.5-4.5-4.5zm0 3c1 0 1.5.5 1.5 1.5V22h-3v-1.5c0-1 .5-1.5 1.5-1.5zM20.5 25h23v4.5h-23V25zm0 7.5h23v15h-23v-15z" fill="#fff"/>
+  <circle cx="26" cy="37" r="1.5" fill="#fff"/>
+  <circle cx="32" cy="37" r="1.5" fill="#fff"/>
+  <circle cx="38" cy="37" r="1.5" fill="#fff"/>
+  <circle cx="26" cy="42" r="1.5" fill="#fff"/>
+  <circle cx="32" cy="42" r="1.5" fill="#fff"/>
+  <circle cx="38" cy="42" r="1.5" fill="#fff"/>
+</svg>

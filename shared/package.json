@@ -1,0 +1,22 @@
+{
+  "name": "@expense/shared",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Pure calculation engine + schema shared by the web client and the API (SRS §7, §11)",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./engine": "./src/engine/index.js",
+    "./config": "./src/data/config.js",
+    "./schema": "./src/data/schema.js",
+    "./actions": "./src/data/actions.js"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "4.1.11"
+  }
+}

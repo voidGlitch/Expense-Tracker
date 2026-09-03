@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+
+# Local JSON-file storage driver data (contains real financial data)
+server/.data/
+
+# Portable toolchain / editor noise
+.tools/
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+coverage/
+.vite/
