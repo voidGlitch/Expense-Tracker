@@ -4,7 +4,7 @@
  * Every call returns parsed JSON or throws an ApiError carrying the status and
  * any `fieldErrors` the server sent, so forms can show messages inline.
  */
-const BASE = '/api';
+const BASE = 'https://expense-manager-api-ynqn.onrender.com/api';
 
 export class ApiError extends Error {
   constructor(message, status, details = {}) {
