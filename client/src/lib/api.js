@@ -24,7 +24,7 @@ async function request(path, { method = 'GET', body, signal } = {}) {
   try {
     response = await fetch(BASE + path, {
       method,
-      credentials: 'same-origin',
+      credentials: 'include',
       headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal,
@@ -48,7 +48,7 @@ async function request(path, { method = 'GET', body, signal } = {}) {
 async function download(path, fallbackName) {
   let response;
   try {
-    response = await fetch(BASE + path, { credentials: 'same-origin' });
+    response = await fetch(BASE + path, { credentials: 'include' });
   } catch {
     throw new ApiError('Cannot reach the server — is it still running?', 0);
   }
