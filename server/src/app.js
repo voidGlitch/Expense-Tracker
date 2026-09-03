@@ -29,7 +29,10 @@ export function createApp(repo) {
         'script-src': ["'self'"],
         'style-src': ["'self'", "'unsafe-inline'"],
         'img-src': ["'self'", 'data:', 'blob:'],
-        'connect-src': ["'self'"],
+        'connect-src': [
+            "'self'",
+            'https://expense-manager-api-ynqn.onrender.com',
+          ],
         'font-src': ["'self'", 'data:'],
         'object-src': ["'none'"],
       },
