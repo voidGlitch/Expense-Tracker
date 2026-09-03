@@ -17,7 +17,7 @@ import { hashPassword } from '../src/auth/password.js';
 import { config } from '../src/env.js';
 
 const TEST_DB = `expense_test_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-const uri = config.mongoUri || 'mongodb://127.0.0.1:27017';
+const uri = config.mongoUri || 'mongodb://0.0.0.0:27017';
 
 describe('MongoDB repository integration (regression: Account not found bug)', () => {
   let repo;

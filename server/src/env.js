@@ -62,7 +62,7 @@ if (problems.length > 0) {
 export const config = {
   nodeEnv,
   isProduction,
-  host: raw.HOST || '127.0.0.1',
+  host: raw.HOST || '0.0.0.0',
   port: int(raw.PORT, 4000),
   rootDir,
   serverDir,

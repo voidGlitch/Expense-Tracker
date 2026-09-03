@@ -11,9 +11,9 @@ export default defineConfig({
     // reach the page — turn this off with `host: false` if that matters.
     host: true,
     proxy: {
-      // The API stays on 127.0.0.1; the dev server forwards to it, so the
+      // The API stays on 0.0.0.0; the dev server forwards to it, so the
       // browser only ever talks to one origin and the session cookie works.
-      '/api': { target: 'http://127.0.0.1:4000', changeOrigin: true },
+      '/api': { target: 'http://0.0.0.0:4000', changeOrigin: true },
     },
   },
   build: {
