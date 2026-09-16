@@ -7,7 +7,7 @@
  */
 import { useEffect, useState } from 'react';
 
-const VALID_ROUTES = ['dashboard', 'expenses', 'bills', 'savings', 'history', 'settings'];
+const VALID_ROUTES = ['dashboard', 'expenses', 'bills', 'savings', 'splitwise', 'history', 'settings'];
 
 const read = () => {
   const path = window.location.pathname;

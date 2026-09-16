@@ -5,7 +5,7 @@
 import { useState, useEffect } from 'react';
 import {
   Cloud, CloudOff, History, Home, PiggyBank, Plus, ReceiptText, RefreshCw,
-  Settings as SettingsIcon, Wallet, ChevronLeft, ChevronRight, Menu, X
+  Settings as SettingsIcon, Wallet, ChevronLeft, ChevronRight, Menu, X, Users
 } from 'lucide-react';
 import { formatMonthLabel } from '@expense/shared';
 import { useAuth } from '../state/AuthContext.jsx';
@@ -18,6 +18,7 @@ import ExpensesView from '../views/ExpensesView.jsx';
 import BillsView from '../views/BillsView.jsx';
 import SavingsView from '../views/SavingsView.jsx';
 import HistoryView from '../views/HistoryView.jsx';
+import SplitwiseView from '../views/SplitwiseView.jsx';
 import SettingsView from '../views/SettingsView.jsx';
 
 const NAV = [
@@ -25,6 +26,7 @@ const NAV = [
   { id: 'expenses', label: 'Spending', icon: Wallet, description: 'Track your expenses' },
   { id: 'bills', label: 'Bills', icon: ReceiptText, description: 'Manage recurring bills' },
   { id: 'savings', label: 'Savings', icon: PiggyBank, description: 'Track your savings' },
+  { id: 'splitwise', label: 'Splitwise', icon: Users, description: 'Shared expenses' },
   { id: 'history', label: 'History', icon: History, description: 'Past months' },
   { id: 'settings', label: 'Settings', icon: SettingsIcon, description: 'Preferences' },
 ];
@@ -34,6 +36,7 @@ const VIEWS = {
   expenses: ExpensesView,
   bills: BillsView,
   savings: SavingsView,
+  splitwise: SplitwiseView,
   history: HistoryView,
   settings: SettingsView,
 };
@@ -280,9 +283,9 @@ function Sidebar({ collapsed, setCollapsed, route, navigate }) {
 /** Mobile navigation with improved styling */
 function MobileNav({ route, navigate }) {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200/80 bg-white/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)] dark:border-slate-800 dark:bg-slate-950/95">
-      <div className="flex items-end justify-around px-2 pt-2">
-        {NAV.slice(0, 5).map((item) => {
+    <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200/80 bg-white/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)] dark:border-slate-800 dark:bg-slate-950/95 overflow-x-auto">
+      <div className="flex items-end justify-between px-2 pt-2 min-w-full">
+        {NAV.map((item) => {
           const active = route === item.id;
           return (
             <button
@@ -291,7 +294,7 @@ function MobileNav({ route, navigate }) {
               onClick={() => navigate(item.id)}
               aria-current={active ? 'page' : undefined}
               className={`
-                relative flex flex-col items-center gap-1 pb-2 pt-1 px-2 min-w-[56px]
+                relative flex flex-col items-center gap-1 pb-2 pt-1 px-1 flex-1 min-w-[48px]
                 transition-all duration-200
                 ${active
                   ? 'text-primary-600 dark:text-primary-400'
@@ -300,13 +303,13 @@ function MobileNav({ route, navigate }) {
               `}
             >
               <item.icon
-                size={22}
+                size={20}
                 className={`transition-transform duration-200 ${active ? 'scale-110' : ''}`}
                 aria-hidden="true"
               />
-              <span className="text-[10px] font-medium">{item.label}</span>
+              <span className="text-[9px] font-medium truncate max-w-[48px]">{item.label}</span>
               {active && (
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-primary-500" />
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full bg-primary-500" />
               )}
             </button>
           );
