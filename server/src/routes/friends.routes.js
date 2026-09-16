@@ -3,6 +3,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import {
   FRIEND_REQUEST_STATUS,
+  contactIdFromParticipantId,
+  isContactParticipantId,
   friendshipIncludes,
   friendshipOther,
   validateFriendRequest,
@@ -18,9 +20,23 @@ const requestSchema = z.object({
 const contactSchema = z.object({
   name: z.string().trim().min(1).max(80),
   email: z.string().trim().max(254).optional().default(''),
+  phone: z.string().trim().max(32).optional().default(''),
 });
 
 async function publicUser(repo, id) {
+  if (isContactParticipantId(id)) {
+    const contact = await repo.findContactById?.(contactIdFromParticipantId(id));
+    return contact ? {
+      id: contact.participantId || id,
+      userId: null,
+      contactId: contact.id,
+      email: contact.email || '',
+      phone: contact.phone || '',
+      name: contact.name,
+      isGuest: !contact.linkedUserId,
+      linkedUserId: contact.linkedUserId || null,
+    } : null;
+  }
   const user = await repo.findUserById(id);
   return user ? repo.publicUser(user) : null;
 }
@@ -52,7 +68,8 @@ export function friendsRoutes() {
       const outgoing = await Promise.all(requests
         .filter((request) => request.status === FRIEND_REQUEST_STATUS.PENDING && request.fromUserId === req.user.id)
         .map(async (request) => ({ ...request, toUser: await publicUser(req.repo, request.toUserId) })));
-      res.json({ friends, incoming, outgoing, contacts });
+      const friendshipContactIds = new Set(friends.map((friend) => friend.user?.contactId).filter(Boolean));
+      res.json({ friends, incoming, outgoing, contacts: contacts.filter((contact) => !friendshipContactIds.has(contact.id)) });
     } catch (error) {
       next(error);
     }
@@ -71,7 +88,8 @@ export function friendsRoutes() {
       // link immediately instead of waiting for another registration.
       const registered = saved.email ? await req.repo.findUserByEmail(saved.email) : null;
       if (registered && registered.id !== req.user.id) await req.repo.claimContactsForUser(registered);
-      res.status(201).json({ contact: saved });
+      const refreshed = await req.repo.findContactById?.(saved.id);
+      res.status(201).json({ contact: refreshed || saved });
     } catch (error) { next(error); }
   });
 

@@ -17,6 +17,9 @@ import { userRoutes } from './routes/users.routes.js';
 import { friendsRoutes } from './routes/friends.routes.js';
 import { friendshipsRoutes } from './routes/friendships.routes.js';
 import { groupsRoutes } from './routes/groups.routes.js';
+import { expensesRoutes } from './routes/expenses.routes.js';
+import { settlementsRoutes } from './routes/settlements.routes.js';
+import { sharedRoutes } from './routes/shared.routes.js';
 import { notFound } from './util/http.js';
 
 export function createApp(repo) {
@@ -68,6 +71,9 @@ export function createApp(repo) {
   app.use('/api/friends', requireAuth, friendsRoutes());
   app.use('/api/friendships', requireAuth, friendshipsRoutes());
   app.use('/api/groups', requireAuth, groupsRoutes());
+  app.use('/api/expenses', requireAuth, expensesRoutes());
+  app.use('/api/settlements', requireAuth, settlementsRoutes());
+  app.use('/api/shared', requireAuth, sharedRoutes());
   app.use('/api/budget', requireAuth, budgetRoutes());
   app.use('/api/export', requireAuth, exportRoutes());
 

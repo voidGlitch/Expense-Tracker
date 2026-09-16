@@ -7,4 +7,13 @@ export * from './bills.js';
 export * from './budget.js';
 export * from './savings.js';
 export * from './analytics.js';
-export * from './splitwise.js';
+// `balances.js` owns the public, minor-unit-safe `simplifyDebts` export. Keep
+// the earlier UI helper available under an explicit name so barrel exports do
+// not silently pick one of two different implementations.
+export {
+  calculateSplits,
+  calculateNetBalances,
+  calculatePairwiseBalances,
+  getSplitwiseSummary,
+  simplifyDebts as simplifySplitwiseDebts,
+} from './splitwise.js';

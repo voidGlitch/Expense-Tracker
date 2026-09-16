@@ -30,6 +30,18 @@ export function friendPair(a, b) {
   return [String(a), String(b)].sort();
 }
 
+export function contactParticipantId(contactId) {
+  return `contact:${String(contactId)}`;
+}
+
+export function isContactParticipantId(id) {
+  return String(id || '').startsWith('contact:');
+}
+
+export function contactIdFromParticipantId(id) {
+  return isContactParticipantId(id) ? String(id).slice('contact:'.length) : null;
+}
+
 export function friendshipIncludes(friendship, userId) {
   const key = String(userId);
   return friendship.userA === key || friendship.userB === key;
@@ -90,11 +102,15 @@ export function validateFriendRequest(request) {
  */
 export function makeContact(partial = {}) {
   const email = text(partial.email, 254).toLowerCase();
+  const id = partial.id || makeId('cnt');
   return {
-    id: partial.id || makeId('cnt'),
+    id,
+    participantId: partial.participantId || contactParticipantId(id),
     ownerUserId: String(partial.ownerUserId || ''),
     name: text(partial.name, 80),
     email: email || null,
+    phone: text(partial.phone, 32) || null,
+    userId: null,
     linkedUserId: partial.linkedUserId ? String(partial.linkedUserId) : null,
     createdAt: nowIso(partial.createdAt),
     updatedAt: nowIso(partial.updatedAt || partial.createdAt),
@@ -119,8 +135,10 @@ export const GROUP_NAME_MAX = 60;
 export const GROUP_DESCRIPTION_MAX = 240;
 
 export function makeGroupMember(userId, role = GROUP_ROLE.MEMBER, partial = {}) {
+  const participantId = partial.participantId || String(userId);
   return {
-    userId: String(userId),
+    userId: partial.userId === null ? null : String(userId),
+    participantId,
     role: role === GROUP_ROLE.OWNER ? GROUP_ROLE.OWNER : GROUP_ROLE.MEMBER,
     joinedAt: nowIso(partial.joinedAt),
   };
@@ -131,7 +149,7 @@ export function makeGroup(partial = {}) {
   const members = (Array.isArray(partial.members) ? partial.members : [])
     .map((member) => (typeof member === 'string'
       ? makeGroupMember(member, member === createdBy ? GROUP_ROLE.OWNER : GROUP_ROLE.MEMBER)
-      : makeGroupMember(member.userId, member.role, member)));
+      : makeGroupMember(member.userId ?? member.participantId, member.role, member)));
 
   return {
     id: partial.id || makeId('grp'),
@@ -156,7 +174,7 @@ export function validateGroup(group) {
   const members = Array.isArray(group.members) ? group.members : [];
   if (members.length === 0) errors.members = 'Add at least one member.';
   else if (!members.some((m) => m.role === GROUP_ROLE.OWNER)) errors.members = 'The group needs an owner.';
-  else if (new Set(members.map((m) => m.userId)).size !== members.length) {
+  else if (new Set(members.map((m) => m.participantId || m.userId)).size !== members.length) {
     errors.members = 'That member is already in the group.';
   }
   return { ok: Object.keys(errors).length === 0, errors };
@@ -164,12 +182,12 @@ export function validateGroup(group) {
 
 export function isGroupMember(group, userId) {
   const key = String(userId);
-  return (group?.members || []).some((member) => String(member.userId) === key);
+  return (group?.members || []).some((member) => String(member.userId ?? member.participantId) === key || String(member.participantId) === key);
 }
 
 export function groupRole(group, userId) {
   const key = String(userId);
-  const member = (group?.members || []).find((m) => String(m.userId) === key);
+  const member = (group?.members || []).find((m) => String(m.userId ?? m.participantId) === key || String(m.participantId) === key);
   return member ? member.role : null;
 }
 
@@ -180,5 +198,5 @@ export function addGroupMember(group, userId, role = GROUP_ROLE.MEMBER) {
 
 export function removeGroupMember(group, userId) {
   const key = String(userId);
-  return { ...group, members: group.members.filter((m) => String(m.userId) !== key) };
+  return { ...group, members: group.members.filter((m) => String(m.userId ?? m.participantId) !== key && String(m.participantId) !== key) };
 }
