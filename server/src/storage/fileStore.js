@@ -9,7 +9,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../env.js';
-import { createMemoryRepo } from './memoryStore.js';
+import { createMemoryRepo, emptyCollections } from './memoryStore.js';
 
 const WRITE_DEBOUNCE_MS = 60;
 
@@ -18,13 +18,23 @@ async function readSnapshot(filePath) {
   try {
     text = await fs.readFile(filePath, 'utf8');
   } catch (error) {
-    if (error.code === 'ENOENT') return { users: {}, documents: {} };
+    if (error.code === 'ENOENT') return emptyCollections();
     throw error;
   }
-  if (!text.trim()) return { users: {}, documents: {} };
+  if (!text.trim()) return emptyCollections();
   try {
     const parsed = JSON.parse(text);
-    return { users: parsed.users || {}, documents: parsed.documents || {} };
+    // Keep every collection the repo knows about — a file written before the
+    // shared-expense collections existed simply has none of them.
+    return {
+      ...emptyCollections(),
+      users: parsed.users || {},
+      documents: parsed.documents || {},
+      friendships: parsed.friendships || {},
+      friendRequests: parsed.friendRequests || {},
+      groups: parsed.groups || {},
+      contacts: parsed.contacts || {},
+    };
   } catch {
     // Refuse to start rather than silently continuing with an empty database —
     // that would look exactly like "all my data disappeared".

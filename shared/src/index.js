@@ -8,4 +8,5 @@
 export * from './engine/index.js';
 export * from './data/config.js';
 export * from './data/schema.js';
+export * from './data/split.js';
 export * from './data/actions.js';

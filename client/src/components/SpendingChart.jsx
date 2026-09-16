@@ -226,13 +226,16 @@ export function WeeklySpendingChart({ month, money, className = '' }) {
 
     const weeklyData = weeklySpending(month);
     const labels = ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5'];
-    const data = [
+    const amounts = [
       weeklyData.week1 || 0,
       weeklyData.week2 || 0,
       weeklyData.week3 || 0,
       weeklyData.week4 || 0,
       weeklyData.week5 || 0
-    ].filter((_, i) => i < 4 || data[i] > 0); // Only show weeks with data
+    ];
+    // Never reference the array while it is being initialized (which used to
+    // throw on the Categories and Trends tabs). Week five is optional only.
+    const data = amounts.filter((amount, index) => index < 4 || amount > 0);
 
     return {
       labels: labels.slice(0, data.length),

@@ -109,3 +109,61 @@ export const ESTIMATE_WINDOW = 3;
 
 /** Warn when the day's spending exceeds the allowance by this factor (FR13). */
 export const OVERSPEND_WARN_RATIO = 1.0;
+
+/* ---------------------------------------------------------------------------
+ * Shared expenses (Splitwise-style)
+ * ------------------------------------------------------------------------- */
+
+/** Lifecycle of a friend request. */
+export const FRIEND_REQUEST_STATUS = {
+  PENDING: 'pending',
+  ACCEPTED: 'accepted',
+  REJECTED: 'rejected',
+  CANCELLED: 'cancelled',
+};
+
+/** A group always has exactly one owner; everyone else is a plain member. */
+export const GROUP_ROLE = { OWNER: 'owner', MEMBER: 'member' };
+
+/**
+ * How an expense is divided among its participants (§6).
+ * `equal` / `exact` / `percentage` / `shares` are implemented in the engine;
+ * `adjustment` and `itemized` build on them.
+ */
+export const SPLIT_METHOD = {
+  EQUAL: 'equal',
+  EXACT: 'exact',
+  PERCENTAGE: 'percentage',
+  SHARES: 'shares',
+  ADJUSTMENT: 'adjustment',
+  ITEMIZED: 'itemized',
+};
+
+/** Categories offered when filing a shared expense. Free text is also accepted. */
+export const EXPENSE_CATEGORIES = [
+  { id: 'Food', label: 'Food', icon: 'utensils', color: '#c2410c' },
+  { id: 'Groceries', label: 'Groceries', icon: 'shopping-basket', color: '#2563eb' },
+  { id: 'Rent', label: 'Rent', icon: 'home', color: '#7c3aed' },
+  { id: 'Utilities', label: 'Utilities', icon: 'plug', color: '#0d9488' },
+  { id: 'Travel', label: 'Travel', icon: 'plane', color: '#0369a1' },
+  { id: 'Transport', label: 'Transport', icon: 'car', color: '#4f46e5' },
+  { id: 'Hotel', label: 'Hotel', icon: 'bed', color: '#be185d' },
+  { id: 'Entertainment', label: 'Entertainment', icon: 'ticket', color: '#a16207' },
+  { id: 'Shopping', label: 'Shopping', icon: 'bag', color: '#db2777' },
+  { id: 'Healthcare', label: 'Healthcare', icon: 'heart-pulse', color: '#dc2626' },
+  { id: 'Education', label: 'Education', icon: 'graduation-cap', color: '#0891b2' },
+  { id: 'Bills', label: 'Bills', icon: 'receipt', color: '#65a30d' },
+  { id: 'Other', label: 'Other', icon: 'circle-ellipsis', color: '#4b5563' },
+];
+
+/** How a settlement was paid (§14). */
+export const SETTLEMENT_METHODS = [
+  { id: 'cash', label: 'Cash' },
+  { id: 'bank', label: 'Bank transfer' },
+  { id: 'upi', label: 'UPI' },
+  { id: 'other', label: 'Other' },
+];
+
+export function expenseCategory(id) {
+  return EXPENSE_CATEGORIES.find((c) => c.id === id) || EXPENSE_CATEGORIES[EXPENSE_CATEGORIES.length - 1];
+}

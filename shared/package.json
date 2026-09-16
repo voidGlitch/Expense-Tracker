@@ -10,6 +10,7 @@
     "./engine": "./src/engine/index.js",
     "./config": "./src/data/config.js",
     "./schema": "./src/data/schema.js",
+    "./split": "./src/data/split.js",
     "./actions": "./src/data/actions.js"
   },
   "scripts": {

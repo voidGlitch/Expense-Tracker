@@ -6,6 +6,7 @@
  */
 import mongoose from 'mongoose';
 import { emptyStore, normalizeStore } from '@expense/shared/schema';
+import { friendPair } from '@expense/shared/split';
 import { config } from '../env.js';
 import { conflict, notFound } from '../util/http.js';
 
@@ -52,6 +53,71 @@ const documentSchema = new mongoose.Schema({
   versionKey: false,
 });
 
+/* --- Shared-expense collections (SRS §27) ---------------------------------
+ * Cross-user by nature: both sides of a friendship read the same row, so these
+ * cannot live inside a single user's document.
+ */
+
+const friendshipSchema = new mongoose.Schema({
+  _id: { type: String },
+  userA: { type: String, required: true, index: true },
+  userB: { type: String, required: true, index: true },
+  createdAt: { type: String, default: () => new Date().toISOString() },
+}, { versionKey: false });
+
+// One friendship per pair, regardless of who asked.
+friendshipSchema.index({ userA: 1, userB: 1 }, { unique: true });
+
+const friendRequestSchema = new mongoose.Schema({
+  _id: { type: String },
+  fromUserId: { type: String, required: true, index: true },
+  toUserId: { type: String, required: true, index: true },
+  status: {
+    type: String,
+    enum: ['pending', 'accepted', 'rejected', 'cancelled'],
+    default: 'pending',
+  },
+  message: { type: String, default: '' },
+  createdAt: { type: String, default: () => new Date().toISOString() },
+  respondedAt: { type: String, default: null },
+}, { versionKey: false });
+
+const groupSchema = new mongoose.Schema({
+  _id: { type: String },
+  name: { type: String, required: true },
+  description: { type: String, default: '' },
+  icon: { type: String, default: null },
+  currency: { type: String, default: 'INR' },
+  createdBy: { type: String, required: true, index: true },
+  createdAt: { type: String, default: () => new Date().toISOString() },
+  members: {
+    type: [{
+      _id: false,
+      userId: { type: String, required: true },
+      role: { type: String, enum: ['owner', 'member'], default: 'member' },
+      joinedAt: { type: String, default: () => new Date().toISOString() },
+    }],
+    default: [],
+  },
+  settings: {
+    simplifyDebts: { type: Boolean, default: true },
+  },
+}, { versionKey: false });
+
+groupSchema.index({ 'members.userId': 1 });
+
+/** Private contacts stay owned by one user until their email signs up. */
+const contactSchema = new mongoose.Schema({
+  _id: { type: String },
+  ownerUserId: { type: String, required: true, index: true },
+  name: { type: String, required: true },
+  email: { type: String, default: null, index: true },
+  linkedUserId: { type: String, default: null, index: true },
+  createdAt: { type: String, default: () => new Date().toISOString() },
+  updatedAt: { type: String, default: () => new Date().toISOString() },
+}, { versionKey: false });
+contactSchema.index({ ownerUserId: 1, email: 1 });
+
 // Cache connections/models across warm serverless invocations.
 const connectionCache = new Map();
 
@@ -92,6 +158,25 @@ export function createMongoRepo(
 
       const Doc = connection.models.Document
         || connection.model('Document', documentSchema);
+
+      const Friendship = connection.models.Friendship
+        || connection.model('Friendship', friendshipSchema);
+
+      const FriendRequest = connection.models.FriendRequest
+        || connection.model('FriendRequest', friendRequestSchema);
+
+      const Group = connection.models.Group
+        || connection.model('Group', groupSchema);
+
+      const Contact = connection.models.Contact
+        || connection.model('Contact', contactSchema);
+
+      /** Mongoose `_id` -> `id`, so both drivers return the same shape. */
+      const withId = (row) => {
+        if (!row) return null;
+        const { _id, __v, ...rest } = row;
+        return { id: String(_id), ...rest };
+      };
 
       // Don't run syncIndexes on every serverless invocation.
       // MongoDB Atlas will already have the indexes after the first setup.
@@ -223,6 +308,196 @@ export function createMongoRepo(
             rev: created.rev,
             updatedAt: created.updatedAt,
           };
+        },
+
+        /* --- Users: search -------------------------------------------- */
+
+        async listUsers({ excludeId = null, query = '', limit = 20 } = {}) {
+          const filter = {};
+          if (excludeId != null) filter._id = { $ne: String(excludeId) };
+          const needle = String(query || '').trim();
+          if (needle) {
+            // Escape so a name like "a.b" is a literal, not a wildcard regex.
+            const safe = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const rx = new RegExp(safe, 'i');
+            filter.$or = [{ name: rx }, { email: rx }];
+          }
+          const rows = await User.find(filter).limit(Math.min(Number(limit) || 20, 50)).lean();
+          return rows.map((row) => publicUser(row));
+        },
+
+        /* --- Friendships ---------------------------------------------- */
+
+        async listFriendships(userId) {
+          const key = String(userId);
+          const rows = await Friendship.find({ $or: [{ userA: key }, { userB: key }] }).lean();
+          return rows.map(withId);
+        },
+
+        async findFriendshipById(id) {
+          return withId(await Friendship.findById(String(id)).lean());
+        },
+
+        async findFriendshipBetween(a, b) {
+          const [userA, userB] = friendPair(a, b);
+          return withId(await Friendship.findOne({ userA, userB }).lean());
+        },
+
+        async createFriendship(a, b) {
+          const existing = await this.findFriendshipBetween(a, b);
+          if (existing) return existing;
+          const [userA, userB] = friendPair(a, b);
+          const id = new mongoose.Types.ObjectId().toString();
+          try {
+            const created = await Friendship.create({
+              _id: id, userA, userB, createdAt: new Date().toISOString(),
+            });
+            return withId(created.toObject());
+          } catch (error) {
+            // Lost a race with the other side of the same friendship — fine.
+            if (error?.code === 11000) return this.findFriendshipBetween(a, b);
+            throw error;
+          }
+        },
+
+        async deleteFriendship(id) {
+          const result = await Friendship.deleteOne({ _id: String(id) });
+          return result.deletedCount > 0;
+        },
+
+        /* --- Friend requests ------------------------------------------ */
+
+        async findFriendRequestById(id) {
+          return withId(await FriendRequest.findById(String(id)).lean());
+        },
+
+        async findPendingRequest(fromUserId, toUserId) {
+          return withId(await FriendRequest.findOne({
+            fromUserId: String(fromUserId),
+            toUserId: String(toUserId),
+            status: 'pending',
+          }).lean());
+        },
+
+        async listFriendRequests(userId) {
+          const key = String(userId);
+          const rows = await FriendRequest.find({ $or: [{ fromUserId: key }, { toUserId: key }] })
+            .sort({ createdAt: -1 })
+            .lean();
+          return rows.map(withId);
+        },
+
+        async createFriendRequest(partial) {
+          const id = partial.id || new mongoose.Types.ObjectId().toString();
+          const created = await FriendRequest.create({
+            _id: id,
+            fromUserId: String(partial.fromUserId),
+            toUserId: String(partial.toUserId),
+            status: partial.status || 'pending',
+            message: partial.message || '',
+            createdAt: partial.createdAt || new Date().toISOString(),
+            respondedAt: partial.respondedAt || null,
+          });
+          return withId(created.toObject());
+        },
+
+        async updateFriendRequest(id, patch) {
+          const updated = await FriendRequest.findByIdAndUpdate(
+            String(id),
+            { $set: { ...patch, id: undefined } },
+            { new: true },
+          ).lean();
+          if (!updated) throw notFound('That friend request no longer exists.');
+          return withId(updated);
+        },
+
+        /* --- Private, not-yet-registered contacts -------------------- */
+
+        async listContacts(ownerUserId) {
+          const rows = await Contact.find({ ownerUserId: String(ownerUserId) })
+            .sort({ name: 1 })
+            .lean();
+          return rows.map(withId);
+        },
+
+        async createContact(partial) {
+          const id = partial.id || new mongoose.Types.ObjectId().toString();
+          const created = await Contact.create({
+            _id: id,
+            ownerUserId: String(partial.ownerUserId),
+            name: partial.name,
+            email: partial.email || null,
+            linkedUserId: partial.linkedUserId || null,
+            createdAt: partial.createdAt || new Date().toISOString(),
+            updatedAt: partial.updatedAt || new Date().toISOString(),
+          });
+          return withId(created.toObject());
+        },
+
+        async claimContactsForUser(user) {
+          const email = String(user?.email || '').toLowerCase();
+          if (!email) return [];
+          const matches = await Contact.find({
+            email,
+            ownerUserId: { $ne: String(user.id) },
+            $or: [{ linkedUserId: null }, { linkedUserId: { $exists: false } }],
+          }).lean();
+          if (!matches.length) return [];
+          const now = new Date().toISOString();
+          await Contact.updateMany({ _id: { $in: matches.map((contact) => contact._id) } }, {
+            $set: { linkedUserId: String(user.id), updatedAt: now },
+          });
+          await Promise.all(matches.map((contact) => this.createFriendship(contact.ownerUserId, user.id)));
+          return matches.map((contact) => withId({ ...contact, linkedUserId: String(user.id), updatedAt: now }));
+        },
+
+        /* --- Groups ---------------------------------------------------- */
+
+        async listGroups(userId) {
+          const rows = await Group.find({ 'members.userId': String(userId) })
+            .sort({ createdAt: -1 })
+            .lean();
+          return rows.map(withId);
+        },
+
+        async findGroupById(id) {
+          return withId(await Group.findById(String(id)).lean());
+        },
+
+        async createGroup(group) {
+          const id = group.id || new mongoose.Types.ObjectId().toString();
+          const created = await Group.create({
+            _id: id,
+            name: group.name,
+            description: group.description || '',
+            icon: group.icon ?? null,
+            currency: group.currency || 'INR',
+            createdBy: String(group.createdBy),
+            createdAt: group.createdAt || new Date().toISOString(),
+            members: (group.members || []).map((m) => ({
+              userId: String(m.userId),
+              role: m.role === 'owner' ? 'owner' : 'member',
+              joinedAt: m.joinedAt || new Date().toISOString(),
+            })),
+            settings: { simplifyDebts: group.settings?.simplifyDebts !== false },
+          });
+          return withId(created.toObject());
+        },
+
+        async updateGroup(id, patch) {
+          const { id: _ignored, _id, ...rest } = patch || {};
+          const updated = await Group.findByIdAndUpdate(
+            String(id),
+            { $set: rest },
+            { new: true },
+          ).lean();
+          if (!updated) throw notFound('That group no longer exists.');
+          return withId(updated);
+        },
+
+        async deleteGroup(id) {
+          const result = await Group.deleteOne({ _id: String(id) });
+          return result.deletedCount > 0;
         },
 
         async saveDocument(userId, store, expectedRev) {
