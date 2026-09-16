@@ -21,6 +21,7 @@ export default function SplitwiseView() {
   const [showAddFriend, setShowAddFriend] = useState(false);
   const [showAddGroup, setShowAddGroup] = useState(false);
   const [showAddExpense, setShowAddExpense] = useState(false);
+  const [showSettleUp, setShowSettleUp] = useState(false);
 
   // Computed summary
   const summary = useMemo(() => {
@@ -50,6 +51,13 @@ export default function SplitwiseView() {
           onClick={() => setShowAddExpense(true)}
         >
           Add Expense
+        </Button>
+        <Button
+          className="ml-2 bg-emerald-600 text-white hover:bg-emerald-500 rounded-xl px-4 py-2.5 text-sm font-semibold"
+          icon={HandCoins}
+          onClick={() => setShowSettleUp(true)}
+        >
+          Settle Up
         </Button>
       </header>
 
@@ -146,6 +154,15 @@ export default function SplitwiseView() {
           onClose={() => setShowAddExpense(false)}
           friends={splitwise.friends}
           groups={splitwise.groups}
+          apply={apply}
+          userId={userId}
+        />
+      )}
+
+      {showSettleUp && (
+        <SettleUpModal
+          onClose={() => setShowSettleUp(false)}
+          friends={splitwise.friends}
           apply={apply}
           userId={userId}
         />
@@ -476,16 +493,24 @@ function AddExpenseModal({ onClose, apply, friends, groups, userId }) {
   const [amount, setAmount] = useState('');
   const [groupId, setGroupId] = useState('');
   const [paidBy, setPaidBy] = useState(userId);
-  const [splitWith, setSplitWith] = useState([]); // friend IDs
+  const [splitType, setSplitType] = useState('equal');
+  const [splitWith, setSplitWith] = useState([]); // friend IDs or participant IDs
+  const [splitDetails, setSplitDetails] = useState({}); // { [memberId]: value }
 
-  // Extract all potential participants based on selected group or friends
   const relevantFriends = groupId
     ? friends.filter(f => groups.find(g => g.id === groupId)?.members.includes(f.id))
     : friends;
 
+  const participants = groupId
+      ? [userId, ...relevantFriends.map(f => f.id)]
+      : [userId, ...splitWith];
+
   const handleToggleSplit = (id) => {
     if (splitWith.includes(id)) {
       setSplitWith(splitWith.filter(m => m !== id));
+      const newDetails = { ...splitDetails };
+      delete newDetails[id];
+      setSplitDetails(newDetails);
     } else {
       setSplitWith([...splitWith, id]);
     }
@@ -495,35 +520,30 @@ function AddExpenseModal({ onClose, apply, friends, groups, userId }) {
     const numAmt = parseFloat(amount);
     if (!description.trim() || isNaN(numAmt) || numAmt <= 0) return;
 
-    // Default to equally split between you and selected friends
-    const participants = [userId, ...splitWith];
-    const shares = participants.length > 0 ? participants.length : 1;
-    const splitAmount = numAmt / shares;
+    // Use engine to calculate splits
+    import('@expense/shared').then(({ calculateSplits }) => {
+      const splits = calculateSplits(numAmt, splitType, participants, splitDetails);
 
-    const splits = participants.map(id => ({
-      memberId: id,
-      amount: splitAmount // Note: in real app use calculateSplits for exact cents
-    }));
-
-    apply(store => {
-      const sw = store.splitwise || { groups: [], friends: [], expenses: [], settlements: [] };
-      return {
-        ...store,
-        splitwise: {
-          ...sw,
-          expenses: [...sw.expenses, {
-            id: makeId('exp'),
-            description: description.trim(),
-            amount: numAmt,
-            date: new Date().toISOString().split('T')[0],
-            paidBy,
-            groupId: groupId || null,
-            splits
-          }]
-        }
-      };
+      apply(store => {
+        const sw = store.splitwise || { groups: [], friends: [], expenses: [], settlements: [] };
+        return {
+          ...store,
+          splitwise: {
+            ...sw,
+            expenses: [...sw.expenses, {
+              id: makeId('exp'),
+              description: description.trim(),
+              amount: numAmt,
+              date: new Date().toISOString().split('T')[0],
+              paidBy,
+              groupId: groupId || null,
+              splits
+            }]
+          }
+        };
+      });
+      onClose();
     });
-    onClose();
   };
 
   return (
@@ -531,25 +551,14 @@ function AddExpenseModal({ onClose, apply, friends, groups, userId }) {
       <div className="space-y-4">
         <div>
           <label className="block text-sm font-medium mb-1">Description</label>
-          <TextInput
-            value={description}
-            onChange={e => setDescription(e.target.value)}
-            placeholder="Dinner, Groceries, etc."
-            autoFocus
-          />
+          <TextInput value={description} onChange={e => setDescription(e.target.value)} placeholder="Dinner, Groceries, etc." autoFocus />
         </div>
 
         <div>
           <label className="block text-sm font-medium mb-1">Amount</label>
           <div className="relative">
             <span className="absolute left-3 top-2 text-slate-400">₹</span>
-            <TextInput
-              type="number"
-              className="pl-7"
-              value={amount}
-              onChange={e => setAmount(e.target.value)}
-              placeholder="0.00"
-            />
+            <TextInput type="number" className="pl-7" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" />
           </div>
         </div>
 
@@ -571,34 +580,107 @@ function AddExpenseModal({ onClose, apply, friends, groups, userId }) {
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-2 mt-2">Split roughly equally with</label>
-          {!groupId && relevantFriends.length === 0 ? (
-            <div className="text-sm text-slate-500">Add friends first to split bills.</div>
-          ) : (
-            <div className="max-h-40 overflow-y-auto space-y-1">
-              {relevantFriends.map(friend => (
-                <label key={friend.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={splitWith.includes(friend.id) || (groupId && true)} // Simplified logic: if group, all checked visually
-                    onChange={() => !groupId && handleToggleSplit(friend.id)}
-                    disabled={!!groupId}
-                    className="rounded border-slate-300 text-primary-600 focus:ring-primary-600 h-4 w-4"
-                  />
-                  <span>{friend.name}</span>
-                </label>
-              ))}
-            </div>
-          )}
+          <label className="block text-sm font-medium mb-2">Split Type</label>
+          <Select value={splitType} onChange={e => setSplitType(e.target.value)}>
+            <option value="equal">Equal</option>
+            <option value="exact">Exact Amount</option>
+            <option value="percentage">Percentage</option>
+            <option value="shares">Shares</option>
+          </Select>
         </div>
 
-        <Button
-          variant="primary"
-          className="w-full mt-6"
-          onClick={handleSave}
-          disabled={!description.trim() || !amount}
-        >
+        <div>
+          <label className="block text-sm font-medium mb-2">Participants & Split Details</label>
+          <div className="max-h-40 overflow-y-auto space-y-2 border border-slate-200 dark:border-slate-800 rounded-lg p-2">
+            {groupId ? (
+              participants.map(pId => {
+                const name = pId === userId ? 'You' : (friends.find(f => f.id === pId)?.name || 'Unknown');
+                return <ParticipantRow key={pId} id={pId} name={name} paidBy={paidBy} splitType={splitType} details={splitDetails} setDetails={setSplitDetails} />
+              })
+            ) : (
+                <div className="space-y-2">
+                  <ParticipantRow id={userId} name="You" paidBy={paidBy} splitType={splitType} details={splitDetails} setDetails={setSplitDetails} />
+                  {relevantFriends.map(friend => (
+                    <div key={friend.id} className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 last:border-0 pb-2 mb-2 last:pb-0 last:mb-0">
+                      <label className="flex items-center gap-3 p-2 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer flex-1">
+                        <input type="checkbox" checked={splitWith.includes(friend.id)} onChange={() => handleToggleSplit(friend.id)} className="h-4 w-4 rounded border-slate-300 text-primary-600" />
+                        <span className="text-sm font-medium">{friend.name}</span>
+                      </label>
+                      {splitWith.includes(friend.id) && splitType !== 'equal' && (
+                        <TextInput type="number" className="w-24 text-right" placeholder={splitType} value={splitDetails[friend.id] || ''} onChange={e => setSplitDetails({...splitDetails, [friend.id]: e.target.value})} />
+                      )}
+                    </div>
+                  ))}
+                </div>
+            )}
+          </div>
+        </div>
+
+        <Button variant="primary" className="w-full mt-6" onClick={handleSave} disabled={!description.trim() || !amount}>
           Save Expense
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+function ParticipantRow({ id, splitType, details, setDetails, name }) {
+  return (
+    <div className="flex items-center gap-3 p-2 border-b border-slate-100 dark:border-slate-800 last:border-0">
+      <span className="flex-1 text-sm font-medium">{name}</span>
+      {splitType !== 'equal' && (
+        <TextInput type="number" className="w-24 text-right" placeholder={splitType} value={details[id] || ''} onChange={e => setDetails({...details, [id]: e.target.value})} />
+      )}
+    </div>
+  );
+}
+
+function SettleUpModal({ onClose, apply, friends, userId }) {
+  const [amount, setAmount] = useState('');
+  const [paidTo, setPaidTo] = useState('');
+
+  const handleSave = () => {
+    const numAmt = parseFloat(amount);
+    if (isNaN(numAmt) || numAmt <= 0 || !paidTo) return;
+
+    apply(store => {
+      const sw = store.splitwise || { groups: [], friends: [], expenses: [], settlements: [] };
+      return {
+        ...store,
+        splitwise: {
+          ...sw,
+          settlements: [...sw.settlements, {
+            id: makeId('set'),
+            amount: numAmt,
+            date: new Date().toISOString().split('T')[0],
+            from: userId,
+            to: paidTo
+          }]
+        }
+      };
+    });
+    onClose();
+  };
+
+  return (
+    <Modal title="Settle Up" onClose={onClose}>
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium mb-1">You paid</label>
+          <Select value={paidTo} onChange={e => setPaidTo(e.target.value)}>
+            <option value="">Select friend...</option>
+            {friends.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </Select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Amount</label>
+            <div className="relative">
+              <span className="absolute left-3 top-2 text-slate-400">₹</span>
+              <TextInput type="number" className="pl-7" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" />
+            </div>
+        </div>
+        <Button className="w-full mt-6 bg-emerald-600 text-white hover:bg-emerald-500" onClick={handleSave} disabled={!paidTo || !amount}>
+          Record Settlement
         </Button>
       </div>
     </Modal>
