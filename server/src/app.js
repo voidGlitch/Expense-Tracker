@@ -13,6 +13,10 @@ import { attachUser, requireAuth } from './auth/middleware.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { budgetRoutes } from './routes/budget.routes.js';
 import { exportRoutes } from './routes/export.routes.js';
+import { userRoutes } from './routes/users.routes.js';
+import { friendsRoutes } from './routes/friends.routes.js';
+import { friendshipsRoutes } from './routes/friendships.routes.js';
+import { groupsRoutes } from './routes/groups.routes.js';
 import { notFound } from './util/http.js';
 
 export function createApp(repo) {
@@ -60,6 +64,10 @@ export function createApp(repo) {
   });
 
   app.use('/api/auth', authRoutes());
+  app.use('/api/users', requireAuth, userRoutes());
+  app.use('/api/friends', requireAuth, friendsRoutes());
+  app.use('/api/friendships', requireAuth, friendshipsRoutes());
+  app.use('/api/groups', requireAuth, groupsRoutes());
   app.use('/api/budget', requireAuth, budgetRoutes());
   app.use('/api/export', requireAuth, exportRoutes());
 

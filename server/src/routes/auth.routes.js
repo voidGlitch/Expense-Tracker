@@ -78,6 +78,10 @@ export function authRoutes() {
         passwordHash: await hashPassword(parsed.data.password),
       });
 
+      // A friend may have added this email before registration. Claim only the
+      // matching private contacts and create the shared relationship now.
+      await req.repo.claimContactsForUser?.(user);
+
       setSessionCookie(res, user);
       res.status(201).json({ user });
     } catch (error) {

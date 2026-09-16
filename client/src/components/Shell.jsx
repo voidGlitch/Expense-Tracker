@@ -18,7 +18,7 @@ import ExpensesView from '../views/ExpensesView.jsx';
 import BillsView from '../views/BillsView.jsx';
 import SavingsView from '../views/SavingsView.jsx';
 import HistoryView from '../views/HistoryView.jsx';
-import SplitwiseView from '../views/SplitwiseView.jsx';
+import SplitwiseView from '../views/SharedExpensesView.jsx';
 import SettingsView from '../views/SettingsView.jsx';
 
 const NAV = [
@@ -282,10 +282,11 @@ function Sidebar({ collapsed, setCollapsed, route, navigate }) {
 
 /** Mobile navigation with improved styling */
 function MobileNav({ route, navigate }) {
+  const mobileNav = NAV.filter((item) => ['dashboard', 'expenses', 'splitwise', 'history', 'settings'].includes(item.id));
   return (
     <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200/80 bg-white/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)] dark:border-slate-800 dark:bg-slate-950/95 overflow-x-auto">
       <div className="flex items-end justify-between px-2 pt-2 min-w-full">
-        {NAV.map((item) => {
+        {mobileNav.map((item) => {
           const active = route === item.id;
           return (
             <button
@@ -294,7 +295,7 @@ function MobileNav({ route, navigate }) {
               onClick={() => navigate(item.id)}
               aria-current={active ? 'page' : undefined}
               className={`
-                relative flex flex-col items-center gap-1 pb-2 pt-1 px-1 flex-1 min-w-[48px]
+                relative flex min-h-14 flex-col items-center justify-center gap-1 pb-2 pt-1 px-1 flex-1 min-w-[56px]
                 transition-all duration-200
                 ${active
                   ? 'text-primary-600 dark:text-primary-400'
