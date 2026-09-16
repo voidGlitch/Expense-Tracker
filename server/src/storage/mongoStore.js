@@ -6,7 +6,7 @@
  */
 import mongoose from 'mongoose';
 import { emptyStore, normalizeStore } from '@expense/shared/schema';
-import { friendPair } from '@expense/shared/split';
+import { contactParticipantId, friendPair } from '@expense/shared/split';
 import { config } from '../env.js';
 import { conflict, notFound } from '../util/http.js';
 
@@ -93,7 +93,8 @@ const groupSchema = new mongoose.Schema({
   members: {
     type: [{
       _id: false,
-      userId: { type: String, required: true },
+      userId: { type: String, default: null },
+      participantId: { type: String, required: true },
       role: { type: String, enum: ['owner', 'member'], default: 'member' },
       joinedAt: { type: String, default: () => new Date().toISOString() },
     }],
@@ -105,18 +106,75 @@ const groupSchema = new mongoose.Schema({
 }, { versionKey: false });
 
 groupSchema.index({ 'members.userId': 1 });
+groupSchema.index({ 'members.participantId': 1 });
 
 /** Private contacts stay owned by one user until their email signs up. */
 const contactSchema = new mongoose.Schema({
   _id: { type: String },
+  participantId: { type: String, index: true },
   ownerUserId: { type: String, required: true, index: true },
   name: { type: String, required: true },
   email: { type: String, default: null, index: true },
+  phone: { type: String, default: null },
+  userId: { type: String, default: null },
   linkedUserId: { type: String, default: null, index: true },
   createdAt: { type: String, default: () => new Date().toISOString() },
   updatedAt: { type: String, default: () => new Date().toISOString() },
 }, { versionKey: false });
 contactSchema.index({ ownerUserId: 1, email: 1 });
+
+/**
+ * Shared expenses and settlements. Stored as documents rather than embedded in
+ * a group or friendship so a ledger can grow without bound and be queried by
+ * date and context.
+ */
+const expenseSchema = new mongoose.Schema({
+  _id: { type: String },
+  description: { type: String, required: true },
+  amount: { type: Number, required: true },
+  currency: { type: String, default: 'INR' },
+  date: { type: String, required: true, index: true },
+  category: { type: String, default: 'Other' },
+  notes: { type: String, default: '' },
+  paidBy: { type: String, required: true },
+  participants: { type: [String], default: [] },
+  splitMethod: { type: String, default: 'equal' },
+  splitDetails: { type: mongoose.Schema.Types.Mixed, default: {} },
+  splits: {
+    type: [{ _id: false, memberId: String, amount: Number }],
+    default: [],
+  },
+  contextType: { type: String, enum: ['friendship', 'group'], required: true },
+  contextId: { type: String, required: true },
+  createdBy: { type: String, required: true },
+  createdAt: { type: String, default: () => new Date().toISOString() },
+  updatedBy: { type: String, default: null },
+  updatedAt: { type: String, default: null },
+  deletedAt: { type: String, default: null },
+  deletedBy: { type: String, default: null },
+}, { versionKey: false });
+
+// The ledger query is always "this container's expenses, newest first".
+expenseSchema.index({ contextType: 1, contextId: 1, date: -1 });
+
+const settlementSchema = new mongoose.Schema({
+  _id: { type: String },
+  fromUserId: { type: String, required: true },
+  toUserId: { type: String, required: true },
+  amount: { type: Number, required: true },
+  currency: { type: String, default: 'INR' },
+  date: { type: String, required: true, index: true },
+  method: { type: String, enum: ['cash', 'bank', 'upi', 'other'], default: 'cash' },
+  note: { type: String, default: '' },
+  contextType: { type: String, enum: ['friendship', 'group'], required: true },
+  contextId: { type: String, required: true },
+  createdBy: { type: String, required: true },
+  createdAt: { type: String, default: () => new Date().toISOString() },
+  deletedAt: { type: String, default: null },
+  deletedBy: { type: String, default: null },
+}, { versionKey: false });
+
+settlementSchema.index({ contextType: 1, contextId: 1, date: -1 });
 
 // Cache connections/models across warm serverless invocations.
 const connectionCache = new Map();
@@ -167,6 +225,12 @@ export function createMongoRepo(
 
       const Group = connection.models.Group
         || connection.model('Group', groupSchema);
+
+      const Expense = connection.models.Expense
+        || connection.model('Expense', expenseSchema);
+
+      const Settlement = connection.models.Settlement
+        || connection.model('Settlement', settlementSchema);
 
       const Contact = connection.models.Contact
         || connection.model('Contact', contactSchema);
@@ -233,6 +297,11 @@ export function createMongoRepo(
           return fullUser(
             await User.findById(id).lean(),
           );
+        },
+
+        async findContactById(id) {
+          const key = String(id).replace(/^contact:/, '');
+          return withId(await Contact.findById(key).lean());
         },
 
         async createUser({ email, name, passwordHash }) {
@@ -424,14 +493,19 @@ export function createMongoRepo(
           const id = partial.id || new mongoose.Types.ObjectId().toString();
           const created = await Contact.create({
             _id: id,
+            participantId: partial.participantId || contactParticipantId(id),
             ownerUserId: String(partial.ownerUserId),
             name: partial.name,
             email: partial.email || null,
+            phone: partial.phone || null,
+            userId: null,
             linkedUserId: partial.linkedUserId || null,
             createdAt: partial.createdAt || new Date().toISOString(),
             updatedAt: partial.updatedAt || new Date().toISOString(),
           });
-          return withId(created.toObject());
+          const contact = withId(created.toObject());
+          await this.createFriendship(contact.ownerUserId, contact.participantId);
+          return contact;
         },
 
         async claimContactsForUser(user) {
@@ -445,16 +519,60 @@ export function createMongoRepo(
           if (!matches.length) return [];
           const now = new Date().toISOString();
           await Contact.updateMany({ _id: { $in: matches.map((contact) => contact._id) } }, {
-            $set: { linkedUserId: String(user.id), updatedAt: now },
+            $set: { linkedUserId: String(user.id), userId: String(user.id), updatedAt: now },
           });
-          await Promise.all(matches.map((contact) => this.createFriendship(contact.ownerUserId, user.id)));
-          return matches.map((contact) => withId({ ...contact, linkedUserId: String(user.id), updatedAt: now }));
+          for (const contact of matches) {
+            const guestId = contact.participantId || contactParticipantId(contact._id);
+            const userId = String(user.id);
+            const ownerId = String(contact.ownerUserId);
+            await Friendship.updateMany({ userA: guestId }, { $set: { userA: userId } });
+            await Friendship.updateMany({ userB: guestId }, { $set: { userB: userId } });
+            const rows = await Friendship.find({ $or: [{ userA: userId }, { userB: userId }] }).lean();
+            for (const row of rows) {
+              const [userA, userB] = friendPair(row.userA, row.userB);
+              if (row.userA !== userA || row.userB !== userB) await Friendship.findByIdAndUpdate(row._id, { $set: { userA, userB } });
+            }
+            await Group.updateMany(
+              { 'members.participantId': guestId },
+              { $set: { 'members.$[m].userId': userId, 'members.$[m].participantId': userId } },
+              { arrayFilters: [{ 'm.participantId': guestId }] },
+            );
+            const groupsWithUser = await Group.find({ $or: [{ 'members.userId': userId }, { 'members.participantId': userId }] }).lean();
+            for (const group of groupsWithUser) {
+              const seen = new Set();
+              const members = [];
+              for (const member of group.members || []) {
+                const participantId = String(member.participantId || member.userId);
+                if (seen.has(participantId)) continue;
+                seen.add(participantId);
+                members.push({ ...member, userId: member.userId ?? participantId, participantId });
+              }
+              if (members.length !== (group.members || []).length) await Group.findByIdAndUpdate(group._id, { $set: { members } });
+            }
+            const expenseRows = await Expense.find({ $or: [{ paidBy: guestId }, { participants: guestId }, { 'splits.memberId': guestId }] }).lean();
+            for (const expense of expenseRows) {
+              const splitDetails = {};
+              for (const [key, value] of Object.entries(expense.splitDetails || {})) splitDetails[key === guestId ? userId : key] = value;
+              await Expense.findByIdAndUpdate(expense._id, {
+                $set: {
+                  paidBy: expense.paidBy === guestId ? userId : expense.paidBy,
+                  participants: [...new Set((expense.participants || []).map((id) => id === guestId ? userId : id))],
+                  splitDetails,
+                  splits: (expense.splits || []).map((split) => ({ memberId: split.memberId === guestId ? userId : split.memberId, amount: split.amount })),
+                },
+              });
+            }
+            await Settlement.updateMany({ fromUserId: guestId }, { $set: { fromUserId: userId } });
+            await Settlement.updateMany({ toUserId: guestId }, { $set: { toUserId: userId } });
+            await this.createFriendship(ownerId, userId);
+          }
+          return matches.map((contact) => withId({ ...contact, linkedUserId: String(user.id), userId: String(user.id), updatedAt: now }));
         },
 
         /* --- Groups ---------------------------------------------------- */
 
         async listGroups(userId) {
-          const rows = await Group.find({ 'members.userId': String(userId) })
+          const rows = await Group.find({ $or: [{ 'members.userId': String(userId) }, { 'members.participantId': String(userId) }] })
             .sort({ createdAt: -1 })
             .lean();
           return rows.map(withId);
@@ -475,7 +593,8 @@ export function createMongoRepo(
             createdBy: String(group.createdBy),
             createdAt: group.createdAt || new Date().toISOString(),
             members: (group.members || []).map((m) => ({
-              userId: String(m.userId),
+              userId: m.userId == null ? null : String(m.userId),
+              participantId: String(m.participantId || m.userId),
               role: m.role === 'owner' ? 'owner' : 'member',
               joinedAt: m.joinedAt || new Date().toISOString(),
             })),
@@ -498,6 +617,125 @@ export function createMongoRepo(
         async deleteGroup(id) {
           const result = await Group.deleteOne({ _id: String(id) });
           return result.deletedCount > 0;
+        },
+
+        /* --- Expenses -------------------------------------------------- */
+
+        async listExpenses({ contextType, contextId, includeDeleted = false } = {}) {
+          const filter = { contextType: String(contextType || ''), contextId: String(contextId || '') };
+          if (!includeDeleted) filter.deletedAt = null;
+          const rows = await Expense.find(filter).sort({ date: -1, createdAt: -1 }).lean();
+          return rows.map(withId);
+        },
+
+        async findExpenseById(id) {
+          return withId(await Expense.findById(String(id)).lean());
+        },
+
+        async createExpense(expense) {
+          const created = await Expense.create({
+            _id: expense.id,
+            description: expense.description,
+            amount: expense.amount,
+            currency: expense.currency,
+            date: expense.date,
+            category: expense.category,
+            notes: expense.notes,
+            paidBy: expense.paidBy,
+            participants: expense.participants,
+            splitMethod: expense.splitMethod,
+            splitDetails: expense.splitDetails,
+            splits: expense.splits,
+            contextType: expense.contextType,
+            contextId: expense.contextId,
+            createdBy: expense.createdBy,
+            createdAt: expense.createdAt,
+            updatedBy: expense.updatedBy,
+            updatedAt: expense.updatedAt,
+          });
+          return withId(created.toObject());
+        },
+
+        async updateExpense(id, patch) {
+          const { id: _ignored, _id, ...rest } = patch || {};
+          const updated = await Expense.findByIdAndUpdate(
+            String(id),
+            { $set: rest },
+            { returnDocument: 'after' },
+          ).lean();
+          if (!updated) throw notFound('That expense no longer exists.');
+          return withId(updated);
+        },
+
+        async deleteExpense(id, deletedBy = null) {
+          const updated = await Expense.findByIdAndUpdate(
+            String(id),
+            { $set: { deletedAt: new Date().toISOString(), deletedBy: deletedBy ? String(deletedBy) : null } },
+            { returnDocument: 'after' },
+          ).lean();
+          return Boolean(updated);
+        },
+
+        async listExpensesForContexts({ contextType, contextIds = [], includeDeleted = false } = {}) {
+          const filter = {
+            contextType: String(contextType || ''),
+            contextId: { $in: contextIds.map(String) },
+          };
+          if (!includeDeleted) filter.deletedAt = null;
+          const rows = await Expense.find(filter).sort({ date: -1 }).lean();
+          return rows.map(withId);
+        },
+
+        /* --- Settlements ----------------------------------------------- */
+
+        async listSettlements({ contextType, contextId, includeDeleted = false } = {}) {
+          const filter = { contextType: String(contextType || ''), contextId: String(contextId || '') };
+          if (!includeDeleted) filter.deletedAt = null;
+          const rows = await Settlement.find(filter).sort({ date: -1, createdAt: -1 }).lean();
+          return rows.map(withId);
+        },
+
+        async findSettlementById(id) {
+          return withId(await Settlement.findById(String(id)).lean());
+        },
+
+        async createSettlement(settlement) {
+          const created = await Settlement.create({
+            _id: settlement.id,
+            fromUserId: settlement.fromUserId,
+            toUserId: settlement.toUserId,
+            amount: settlement.amount,
+            currency: settlement.currency,
+            date: settlement.date,
+            method: settlement.method,
+            note: settlement.note,
+            contextType: settlement.contextType,
+            contextId: settlement.contextId,
+            createdBy: settlement.createdBy,
+            createdAt: settlement.createdAt,
+          });
+          return withId(created.toObject());
+        },
+
+        async deleteSettlement(id, deletedBy = null) {
+          const updated = await Settlement.findByIdAndUpdate(
+            String(id),
+            { $set: { deletedAt: new Date().toISOString(), deletedBy: deletedBy ? String(deletedBy) : null } },
+            { returnDocument: 'after' },
+          ).lean();
+          return updated ? withId(updated) : false;
+        },
+
+        async listAllForUser(contextType, contextIds = []) {
+          const base = { contextType: String(contextType || ''), contextId: { $in: contextIds.map(String) }, deletedAt: null };
+          const [expenseRows, settlementRows] = await Promise.all([
+            Expense.find(base).lean(),
+            Settlement.find(base).lean(),
+          ]);
+          return {
+            expenses: expenseRows.map(withId),
+            settlements: settlementRows.map(withId),
+          };
         },
 
         async saveDocument(userId, store, expectedRev) {

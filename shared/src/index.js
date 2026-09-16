@@ -6,7 +6,9 @@
  * any storage engine.
  */
 export * from './engine/index.js';
+export * from './engine/balances.js';
 export * from './data/config.js';
 export * from './data/schema.js';
 export * from './data/split.js';
+export * from './data/expense.js';
 export * from './data/actions.js';

@@ -81,6 +81,12 @@ export function Button({
   disabled,
   ...rest
 }) {
+  // A page can deliberately supply its own colour pair (for example a white
+  // action on a dark hero). Do not let the default variant's `bg-white` win
+  // later in Tailwind's generated stylesheet and hide its white label.
+  const hasCustomSurface = /(?:^|\s)!?bg-[^\s]+/.test(className);
+  const hasCustomText = /(?:^|\s)!?text-[^\s]+/.test(className);
+  const variantStyles = hasCustomSurface || hasCustomText ? '' : VARIANTS[variant];
   const baseStyles =
     'inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed select-none';
 
@@ -93,7 +99,7 @@ export function Button({
       disabled={disabled || busy}
       className={join(
         baseStyles,
-        VARIANTS[variant],
+        variantStyles,
         smStyles,
         className
       )}

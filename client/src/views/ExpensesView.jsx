@@ -2,7 +2,7 @@
 2 * Enhanced ExpensesView: Everything logged this month with search, category filtering,
 3 * group headers, and enhanced cards
 4 */
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pencil, Plus, Receipt, Search, Trash2, ArrowUpRight, ArrowDownRight, Filter } from 'lucide-react';
 import {
   deleteTransaction,
@@ -11,11 +11,14 @@ import {
   isDiscretionaryCategory,
 } from '@expense/shared';
 import { useStore } from '../state/StoreContext.jsx';
+import { api } from '../lib/api.js';
+import { formatMoney } from '../lib/money.js';
 import { ExpenseFormModal } from '../components/ExpenseForm.jsx';
 import { ConfirmDialog } from '../components/Modal.jsx';
 import {
   Badge, Button, Card, CardHeader, EmptyState, Select, Stat, TextInput,
 } from '../components/ui.jsx';
+import { sharedExpenseEntries } from './sharedExpenseUi.js';
 
 export default function ExpensesView() {
   const { month, summary, money, apply, activeMonthId } = useStore();
@@ -25,18 +28,38 @@ export default function ExpensesView() {
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState(null);
+  const [shared, setShared] = useState(null);
+  const [sharedError, setSharedError] = useState('');
+
+  const loadShared = useCallback(async () => {
+    try {
+      const result = await api.getSharedSummary(activeMonthId);
+      setShared(result);
+      setSharedError('');
+    } catch (cause) {
+      setSharedError(cause.message);
+    }
+  }, [activeMonthId]);
+
+  useEffect(() => {
+    loadShared();
+    window.addEventListener('shared-ledger-updated', loadShared);
+    return () => window.removeEventListener('shared-ledger-updated', loadShared);
+  }, [loadShared]);
 
   const transactions = month?.transactions || [];
+  const sharedPersonalEntries = useMemo(() => sharedExpenseEntries(shared, activeMonthId), [shared, activeMonthId]);
+  const visibleTransactions = useMemo(() => [...transactions, ...sharedPersonalEntries], [transactions, sharedPersonalEntries]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return transactions.filter((txn) => {
+    return visibleTransactions.filter((txn) => {
       if (category !== 'all' && txn.category !== category) return false;
       if (typeFilter !== 'all' && txn.type !== typeFilter) return false;
       if (!needle) return true;
       return `${txn.note || ''} ${txn.category || ''} ${txn.date || ''}`.toLowerCase().includes(needle);
     });
-  }, [transactions, query, category, typeFilter]);
+  }, [visibleTransactions, query, category, typeFilter]);
 
   const groups = useMemo(() => {
     const byDate = new Map();
@@ -57,8 +80,11 @@ export default function ExpensesView() {
     );
   }
 
-  const used = [...new Set(transactions.map((txn) => txn.category))].sort();
+  const used = [...new Set(visibleTransactions.map((txn) => txn.category))].sort();
   const isClosed = month.status === 'closed';
+  const sharedMonthly = shared?.monthly;
+  const currentSpent = sharedMonthly?.currentSpending ?? summary.loggedExpenses;
+  const currentRemaining = sharedMonthly?.remaining ?? summary.remaining;
 
   return (
     <div className="space-y-6">
@@ -72,18 +98,33 @@ export default function ExpensesView() {
 
         <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-5 shadow-sm">
           <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">All Logged</span>
-          <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100 tnum">{money(summary.loggedExpenses)}</p>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{summary.transactionCount} entries recorded</p>
+          <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100 tnum">{money(currentSpent)}</p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{summary.transactionCount + sharedPersonalEntries.length} entries including shared cash impact</p>
         </div>
 
         <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-5 shadow-sm">
           <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Remaining</span>
-          <p className={`mt-2 text-2xl font-bold tnum ${summary.remaining < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-            {money(summary.remaining)}
+          <p className={`mt-2 text-2xl font-bold tnum ${currentRemaining < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+            {money(currentRemaining)}
           </p>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{summary.daysLeft} days to go</p>
         </div>
       </div>
+
+      {/* Derived from the authoritative shared-expense ledger. These values are
+          deliberately separate from normal personal transactions: a bill you
+          fronted is not all personal spending, and a receivable is not income. */}
+      <section className="rounded-2xl border border-teal-100 bg-teal-50/60 p-4 dark:border-teal-900/70 dark:bg-teal-950/20 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 className="font-bold text-slate-900 dark:text-slate-100">Shared expense position</h2>
+            <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">Personal shares stay expenses; money others owe you stays receivable until it is settled.</p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={loadShared}>Refresh</Button>
+        </div>
+        {sharedError ? <p className="mt-3 text-sm text-rose-600">Unable to load shared expenses: {sharedError}</p> : !shared ? <p className="mt-3 text-sm text-slate-500">Loading shared balances...</p> : Object.keys(shared.totals || {}).length === 0 ? <p className="mt-3 text-sm text-slate-500">No shared expenses affect your Expense Manager yet.</p> : <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{Object.entries(shared.totals).map(([currency, values]) => <div key={currency} className="rounded-xl bg-white p-3 shadow-sm dark:bg-slate-900"><p className="text-xs font-semibold text-slate-500">{currency} shared</p><p className="mt-1 text-sm font-bold text-slate-900 dark:text-slate-100">Personal share {formatMoney(values.personalExpense, currency)}</p><p className="mt-1 text-xs font-medium text-slate-700 dark:text-slate-300">Cash impact {formatMoney(values.currentCashImpact || 0, currency)}</p><p className="mt-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">Receivable {formatMoney(values.receivable, currency)}</p><p className="mt-1 text-xs font-medium text-rose-700 dark:text-rose-400">Payable {formatMoney(values.payable, currency)}</p></div>)}</div>}
+        {shared?.transactions?.length > 0 && <div className="mt-4 divide-y divide-teal-100 rounded-xl bg-white dark:divide-slate-800 dark:bg-slate-900">{shared.transactions.slice(0, 4).map((txn) => <div key={txn.id} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm"><div className="min-w-0"><p className="truncate font-semibold text-slate-900 dark:text-slate-100">{txn.description}</p><p className="text-xs text-slate-500">{txn.sourceType === 'shared_expense' ? `${txn.category} · personal share` : txn.sourceType === 'settlement_sent' ? 'Settlement payment · not a new expense' : 'Settlement repayment · not income'}</p></div><div className="shrink-0 text-right"><p className="font-bold">{formatMoney(txn.sourceType === 'shared_expense' ? txn.personalShare : txn.amount, txn.currency)}</p>{txn.receivable > 0 && <p className="text-xs text-emerald-700">Receivable {formatMoney(txn.receivable, txn.currency)}</p>}{txn.payable > 0 && <p className="text-xs text-rose-700">Payable {formatMoney(txn.payable, txn.currency)}</p>}</div></div>)}</div>}
+      </section>
 
       {/* Main Content Card */}
       <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-hidden">
@@ -182,7 +223,9 @@ export default function ExpensesView() {
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                             <span>{txn.category}</span>
                             <span>•</span>
-                            {txn.type === 'income' ? (
+                            {txn.shared ? (
+                              <Badge variant="neutral" size="sm">Shared expense</Badge>
+                            ) : txn.type === 'income' ? (
                               <Badge variant="success" size="sm">Income</Badge>
                             ) : isDiscretionaryCategory(txn.category) ? (
                               <Badge variant="warning" size="sm">Discretionary</Badge>
@@ -202,27 +245,28 @@ export default function ExpensesView() {
                           {txn.type === 'income' ? '+' : '-'}{money(txn.amount)}
                         </span>
 
-                        {!isClosed && (
-                          <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                        {!isClosed && !txn.shared && (
+                          <div className="flex shrink-0 items-center gap-1">
                             <Button
                               variant="ghost"
                               size="sm"
                               icon={Pencil}
                               onClick={() => setEditing(txn)}
-                              aria-label="Edit entry"
-                              className="size-8 p-0"
-                            />
+                              aria-label={`Edit ${txn.note || txn.category}`}
+                              className="h-8 px-2 text-slate-700 dark:text-slate-200"
+                            >Edit</Button>
                             <Button
                               variant="ghost"
                               size="sm"
                               icon={Trash2}
                               onClick={() => setRemoving(txn)}
-                              aria-label="Delete entry"
-                              className="size-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
-                            />
+                              aria-label={`Delete ${txn.note || txn.category}`}
+                              className="h-8 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30"
+                            >Delete</Button>
                           </div>
                         )}
                       </div>
+                      {txn.shared && txn.sharedDetail && <p className="mt-1 text-xs text-slate-500">Personal share from {txn.sharedDetail.contextTitle || 'shared ledger'}</p>}
                     </div>
                   ))}
                 </div>

@@ -141,7 +141,7 @@ export const SPLIT_METHOD = {
 
 /** Categories offered when filing a shared expense. Free text is also accepted. */
 export const EXPENSE_CATEGORIES = [
-  { id: 'Food', label: 'Food', icon: 'utensils', color: '#c2410c' },
+  { id: 'Food', label: '🍔 Food / Restaurant', icon: 'utensils', color: '#c2410c' },
   { id: 'Groceries', label: 'Groceries', icon: 'shopping-basket', color: '#2563eb' },
   { id: 'Rent', label: 'Rent', icon: 'home', color: '#7c3aed' },
   { id: 'Utilities', label: 'Utilities', icon: 'plug', color: '#0d9488' },
@@ -150,8 +150,10 @@ export const EXPENSE_CATEGORIES = [
   { id: 'Hotel', label: 'Hotel', icon: 'bed', color: '#be185d' },
   { id: 'Entertainment', label: 'Entertainment', icon: 'ticket', color: '#a16207' },
   { id: 'Shopping', label: 'Shopping', icon: 'bag', color: '#db2777' },
-  { id: 'Healthcare', label: 'Healthcare', icon: 'heart-pulse', color: '#dc2626' },
+  { id: 'Healthcare', label: '🏥 Health', icon: 'heart-pulse', color: '#dc2626' },
   { id: 'Education', label: 'Education', icon: 'graduation-cap', color: '#0891b2' },
+  { id: 'Cafe', label: '☕ Cafe', icon: 'coffee', color: '#92400e' },
+  { id: 'Outing', label: '🎉 Outing / Party', icon: 'party-popper', color: '#be185d' },
   { id: 'Bills', label: 'Bills', icon: 'receipt', color: '#65a30d' },
   { id: 'Other', label: 'Other', icon: 'circle-ellipsis', color: '#4b5563' },
 ];

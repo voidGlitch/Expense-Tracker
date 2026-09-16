@@ -20,7 +20,14 @@
  */
 import { randomUUID } from 'node:crypto';
 import { emptyStore, normalizeStore } from '@expense/shared/schema';
-import { makeContact, makeFriendship, makeFriendRequest, friendPair } from '@expense/shared/split';
+import {
+  contactParticipantId,
+  isContactParticipantId,
+  makeContact,
+  makeFriendship,
+  makeFriendRequest,
+  friendPair,
+} from '@expense/shared/split';
 import { conflict, notFound } from '../util/http.js';
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -33,6 +40,8 @@ const emptyCollections = () => ({
   friendRequests: {},
   groups: {},
   contacts: {},
+  expenses: {},
+  settlements: {},
 });
 
 export function createMemoryRepo(seed = {}) {
@@ -42,6 +51,8 @@ export function createMemoryRepo(seed = {}) {
   const friendRequests = new Map(Object.entries(seed.friendRequests || {}));
   const groups = new Map(Object.entries(seed.groups || {}));
   const contacts = new Map(Object.entries(seed.contacts || {}));
+  const expenses = new Map(Object.entries(seed.expenses || {}));
+  const settlements = new Map(Object.entries(seed.settlements || {}));
   let onChange = null;
 
   const publicUser = (user) => (user
@@ -58,6 +69,8 @@ export function createMemoryRepo(seed = {}) {
     friendRequests: Object.fromEntries(friendRequests),
     groups: Object.fromEntries(groups),
     contacts: Object.fromEntries(contacts),
+    expenses: Object.fromEntries(expenses),
+    settlements: Object.fromEntries(settlements),
   });
 
   return {
@@ -79,6 +92,12 @@ export function createMemoryRepo(seed = {}) {
     async findUserById(id) {
       const user = users.get(String(id));
       return user ? { ...user } : null;
+    },
+
+    async findContactById(id) {
+      const key = String(id).replace(/^contact:/, '');
+      const found = contacts.get(key);
+      return found ? clone(found) : null;
     },
 
     async createUser({ email, name, passwordHash }) {
@@ -241,6 +260,7 @@ export function createMemoryRepo(seed = {}) {
     async createContact(partial) {
       const contact = makeContact(partial);
       contacts.set(contact.id, clone(contact));
+      await this.createFriendship(contact.ownerUserId, contact.participantId);
       touched();
       return clone(contact);
     },
@@ -252,13 +272,171 @@ export function createMemoryRepo(seed = {}) {
       const linked = [];
       for (const [id, current] of contacts) {
         if (current.email !== email || current.ownerUserId === user.id || current.linkedUserId) continue;
+        const guestId = current.participantId || contactParticipantId(id);
         const next = { ...current, linkedUserId: user.id, updatedAt: new Date().toISOString() };
         contacts.set(id, clone(next));
         linked.push(clone(next));
+        for (const [friendshipId, friendship] of friendships) {
+          const mapped = {
+            ...friendship,
+            userA: friendship.userA === guestId ? user.id : friendship.userA,
+            userB: friendship.userB === guestId ? user.id : friendship.userB,
+          };
+          if (mapped.userA === mapped.userB) {
+            friendships.delete(friendshipId);
+            continue;
+          }
+          const [userA, userB] = friendPair(mapped.userA, mapped.userB);
+          friendships.set(friendshipId, { ...mapped, userA, userB });
+        }
+        for (const [groupId, group] of groups) {
+          const seen = new Set();
+          const members = [];
+          for (const member of group.members || []) {
+            const participantId = (member.participantId || member.userId) === guestId ? user.id : (member.participantId || member.userId);
+            const userId = (member.userId || member.participantId) === guestId ? user.id : member.userId;
+            if (seen.has(participantId)) continue;
+            seen.add(participantId);
+            members.push({ ...member, participantId, userId });
+          }
+          groups.set(groupId, { ...group, members });
+        }
+        const rewriteDetails = (details = {}) => {
+          if (!details || typeof details !== 'object') return {};
+          const nextDetails = {};
+          for (const [key, value] of Object.entries(details)) nextDetails[key === guestId ? user.id : key] = value;
+          return nextDetails;
+        };
+        for (const [expenseId, expense] of expenses) {
+          const participants = [...new Set((expense.participants || []).map((participant) => participant === guestId ? user.id : participant))];
+          const splits = (expense.splits || []).map((split) => ({ ...split, memberId: split.memberId === guestId ? user.id : split.memberId }));
+          expenses.set(expenseId, {
+            ...expense,
+            paidBy: expense.paidBy === guestId ? user.id : expense.paidBy,
+            participants,
+            splitDetails: rewriteDetails(expense.splitDetails),
+            splits,
+          });
+        }
+        for (const [settlementId, settlement] of settlements) {
+          settlements.set(settlementId, {
+            ...settlement,
+            fromUserId: settlement.fromUserId === guestId ? user.id : settlement.fromUserId,
+            toUserId: settlement.toUserId === guestId ? user.id : settlement.toUserId,
+          });
+        }
         await this.createFriendship(current.ownerUserId, user.id);
       }
       if (linked.length) touched();
       return linked;
+    },
+
+    /* --- Expenses ------------------------------------------------------ */
+
+    /**
+     * Live expenses in one container (a friendship or a group), newest first.
+     * `contextType`/`contextId` is what keeps the two kinds of ledger apart.
+     */
+    async listExpenses({ contextType, contextId, includeDeleted = false } = {}) {
+      const type = String(contextType || '');
+      const id = String(contextId || '');
+      return [...expenses.values()]
+        .filter((row) => row.contextType === type && row.contextId === id)
+        .filter((row) => includeDeleted || !row.deletedAt)
+        .sort((a, b) => String(b.date).localeCompare(String(a.date))
+          || String(b.createdAt).localeCompare(String(a.createdAt)))
+        .map(clone);
+    },
+
+    async findExpenseById(id) {
+      const found = expenses.get(String(id));
+      return found ? clone(found) : null;
+    },
+
+    async createExpense(expense) {
+      const record = clone(expense);
+      expenses.set(record.id, record);
+      touched();
+      return clone(record);
+    },
+
+    async updateExpense(id, patch) {
+      const key = String(id);
+      const current = expenses.get(key);
+      if (!current) throw notFound('That expense no longer exists.');
+      const next = { ...current, ...clone(patch), id: current.id };
+      expenses.set(key, next);
+      touched();
+      return clone(next);
+    },
+
+    /**
+     * Soft delete by default: a financial record that once moved a balance is
+     * kept, stamped, and excluded from every calculation from then on (§17).
+     */
+    async deleteExpense(id, deletedBy = null) {
+      const key = String(id);
+      const current = expenses.get(key);
+      if (!current) return false;
+      const next = { ...current, deletedAt: new Date().toISOString(), deletedBy: deletedBy ? String(deletedBy) : null };
+      expenses.set(key, next);
+      touched();
+      return true;
+    },
+
+    async listExpensesForContexts({ contextType, contextIds = [], includeDeleted = false } = {}) {
+      const type = String(contextType || '');
+      const allowed = new Set(contextIds.map(String));
+      return [...expenses.values()]
+        .filter((row) => row.contextType === type && allowed.has(row.contextId))
+        .filter((row) => includeDeleted || !row.deletedAt)
+        .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+        .map(clone);
+    },
+
+    /* --- Settlements --------------------------------------------------- */
+
+    async listSettlements({ contextType, contextId, includeDeleted = false } = {}) {
+      const type = String(contextType || '');
+      const id = String(contextId || '');
+      return [...settlements.values()]
+        .filter((row) => row.contextType === type && row.contextId === id)
+        .filter((row) => includeDeleted || !row.deletedAt)
+        .sort((a, b) => String(b.date).localeCompare(String(a.date))
+          || String(b.createdAt).localeCompare(String(a.createdAt)))
+        .map(clone);
+    },
+
+    async findSettlementById(id) {
+      const found = settlements.get(String(id));
+      return found ? clone(found) : null;
+    },
+
+    async createSettlement(settlement) {
+      const record = clone(settlement);
+      settlements.set(record.id, record);
+      touched();
+      return clone(record);
+    },
+
+    async deleteSettlement(id, deletedBy = null) {
+      const key = String(id);
+      const current = settlements.get(key);
+      if (!current) return false;
+      const next = { ...current, deletedAt: new Date().toISOString(), deletedBy: deletedBy ? String(deletedBy) : null };
+      settlements.set(key, next);
+      touched();
+      return clone(next);
+    },
+
+    /** Every expense and settlement a user can see, for the dashboard summary. */
+    async listAllForUser(contextType, contextIds = []) {
+      const type = String(contextType || '');
+      const allowed = new Set(contextIds.map(String));
+      const pick = (map) => [...map.values()]
+        .filter((row) => row.contextType === type && allowed.has(row.contextId) && !row.deletedAt)
+        .map(clone);
+      return { expenses: pick(expenses), settlements: pick(settlements) };
     },
 
     /* --- Groups -------------------------------------------------------- */
@@ -266,7 +444,7 @@ export function createMemoryRepo(seed = {}) {
     async listGroups(userId) {
       const key = String(userId);
       return [...groups.values()]
-        .filter((g) => (g.members || []).some((m) => String(m.userId) === key))
+        .filter((g) => (g.members || []).some((m) => String(m.userId ?? m.participantId) === key || String(m.participantId) === key))
         .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
         .map(clone);
     },

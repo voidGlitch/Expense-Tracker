@@ -374,8 +374,10 @@ export default function Shell() {
                   size="sm"
                   icon={Plus}
                   onClick={() => setAdding(true)}
+                  aria-label="Add expense"
                   className="shadow-lg shadow-primary-500/25 hover:shadow-xl hover:shadow-primary-500/30 transition-shadow"
                 >
+                  <span className="sm:hidden">Add</span>
                   <span className="hidden sm:inline">Add expense</span>
                 </Button>
               </div>
