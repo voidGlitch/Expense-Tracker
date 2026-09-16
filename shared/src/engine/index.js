@@ -7,3 +7,4 @@ export * from './bills.js';
 export * from './budget.js';
 export * from './savings.js';
 export * from './analytics.js';
+export * from './splitwise.js';

@@ -62,6 +62,7 @@ export function emptyStore() {
     billDefinitions: [],
     months: [],
     savings: defaultSavings(),
+    splitwise: { groups: [], friends: [], expenses: [], settlements: [] },
   };
 }
 
@@ -242,6 +243,12 @@ export function normalizeStore(raw) {
         balance: round2((store.savings?.general?.entries || []).reduce((sum, e) => sum + num(e.amount), 0)),
       },
       recovery: { ...base.savings.recovery, ...(store.savings?.recovery || {}) },
+    },
+    splitwise: {
+      groups: Array.isArray(store.splitwise?.groups) ? store.splitwise.groups : [],
+      friends: Array.isArray(store.splitwise?.friends) ? store.splitwise.friends : [],
+      expenses: Array.isArray(store.splitwise?.expenses) ? store.splitwise.expenses : [],
+      settlements: Array.isArray(store.splitwise?.settlements) ? store.splitwise.settlements : [],
     },
   };
 }
