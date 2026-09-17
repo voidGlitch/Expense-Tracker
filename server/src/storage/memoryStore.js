@@ -190,8 +190,11 @@ export function createMemoryRepo(seed = {}) {
     },
 
     async createFriendship(a, b) {
-      const existing = await this.findFriendshipBetween(a, b);
-      if (existing) return existing;
+      // Keep lookup and insertion synchronous so simultaneous additions cannot
+      // create two rows for the same pair in the memory/file repositories.
+      const [userA, userB] = friendPair(a, b);
+      const existing = [...friendships.values()].find((row) => row.userA === userA && row.userB === userB);
+      if (existing) return clone(existing);
       const friendship = makeFriendship(a, b);
       friendships.set(friendship.id, clone(friendship));
       touched();
@@ -277,6 +280,7 @@ export function createMemoryRepo(seed = {}) {
         contacts.set(id, clone(next));
         linked.push(clone(next));
         for (const [friendshipId, friendship] of friendships) {
+          if (friendship.userA !== guestId && friendship.userB !== guestId) continue;
           const mapped = {
             ...friendship,
             userA: friendship.userA === guestId ? user.id : friendship.userA,
@@ -287,7 +291,19 @@ export function createMemoryRepo(seed = {}) {
             continue;
           }
           const [userA, userB] = friendPair(mapped.userA, mapped.userB);
-          friendships.set(friendshipId, { ...mapped, userA, userB });
+          const existing = await this.findFriendshipBetween(userA, userB);
+          if (existing && existing.id !== friendshipId) {
+            for (const collection of [expenses, settlements]) {
+              for (const [rowId, row] of collection) {
+                if (row.contextType === 'friendship' && row.contextId === friendshipId) {
+                  collection.set(rowId, { ...row, contextId: existing.id });
+                }
+              }
+            }
+            friendships.delete(friendshipId);
+          } else {
+            friendships.set(friendshipId, { ...mapped, userA, userB });
+          }
         }
         for (const [groupId, group] of groups) {
           const seen = new Set();

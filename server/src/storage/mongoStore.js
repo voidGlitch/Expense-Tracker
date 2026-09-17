@@ -518,19 +518,22 @@ export function createMongoRepo(
           }).lean();
           if (!matches.length) return [];
           const now = new Date().toISOString();
-          await Contact.updateMany({ _id: { $in: matches.map((contact) => contact._id) } }, {
-            $set: { linkedUserId: String(user.id), userId: String(user.id), updatedAt: now },
-          });
           for (const contact of matches) {
             const guestId = contact.participantId || contactParticipantId(contact._id);
             const userId = String(user.id);
             const ownerId = String(contact.ownerUserId);
-            await Friendship.updateMany({ userA: guestId }, { $set: { userA: userId } });
-            await Friendship.updateMany({ userB: guestId }, { $set: { userB: userId } });
-            const rows = await Friendship.find({ $or: [{ userA: userId }, { userB: userId }] }).lean();
+            const rows = await Friendship.find({ $or: [{ userA: guestId }, { userB: guestId }] }).lean();
             for (const row of rows) {
-              const [userA, userB] = friendPair(row.userA, row.userB);
-              if (row.userA !== userA || row.userB !== userB) await Friendship.findByIdAndUpdate(row._id, { $set: { userA, userB } });
+              const [userA, userB] = friendPair(row.userA === guestId ? userId : row.userA, row.userB === guestId ? userId : row.userB);
+              const existing = await this.findFriendshipBetween(userA, userB);
+              if (existing && existing.id !== String(row._id)) {
+                const context = { contextType: 'friendship', contextId: String(row._id) };
+                await Expense.updateMany(context, { $set: { contextId: existing.id } });
+                await Settlement.updateMany(context, { $set: { contextId: existing.id } });
+                await Friendship.deleteOne({ _id: row._id });
+              } else {
+                await Friendship.findByIdAndUpdate(row._id, { $set: { userA, userB } });
+              }
             }
             await Group.updateMany(
               { 'members.participantId': guestId },
@@ -565,6 +568,9 @@ export function createMongoRepo(
             await Settlement.updateMany({ fromUserId: guestId }, { $set: { fromUserId: userId } });
             await Settlement.updateMany({ toUserId: guestId }, { $set: { toUserId: userId } });
             await this.createFriendship(ownerId, userId);
+            await Contact.updateOne({ _id: contact._id }, {
+              $set: { linkedUserId: userId, userId, updatedAt: now },
+            });
           }
           return matches.map((contact) => withId({ ...contact, linkedUserId: String(user.id), userId: String(user.id), updatedAt: now }));
         },

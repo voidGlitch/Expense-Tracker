@@ -69,7 +69,8 @@ export function friendsRoutes() {
         .filter((request) => request.status === FRIEND_REQUEST_STATUS.PENDING && request.fromUserId === req.user.id)
         .map(async (request) => ({ ...request, toUser: await publicUser(req.repo, request.toUserId) })));
       const friendshipContactIds = new Set(friends.map((friend) => friend.user?.contactId).filter(Boolean));
-      res.json({ friends, incoming, outgoing, contacts: contacts.filter((contact) => !friendshipContactIds.has(contact.id)) });
+      const friendUserIds = new Set(friends.map((friend) => friend.user?.id).filter(Boolean));
+      res.json({ friends, incoming, outgoing, contacts: contacts.filter((contact) => !friendshipContactIds.has(contact.id) && !friendUserIds.has(contact.linkedUserId)) });
     } catch (error) {
       next(error);
     }
@@ -83,13 +84,8 @@ export function friendsRoutes() {
       const valid = validateContact(contact);
       if (!valid.ok) throw badRequest('Please check the contact details.', { fieldErrors: valid.errors });
       if (contact.email && contact.email === req.user.email.toLowerCase()) throw badRequest('You cannot add yourself as a contact.');
-      const saved = await req.repo.createContact(contact);
-      // If the person already registered but was not found by the user search,
-      // link immediately instead of waiting for another registration.
-      const registered = saved.email ? await req.repo.findUserByEmail(saved.email) : null;
-      if (registered && registered.id !== req.user.id) await req.repo.claimContactsForUser(registered);
-      const refreshed = await req.repo.findContactById?.(saved.id);
-      res.status(201).json({ contact: refreshed || saved });
+      const result = await resolveContactFriend(req.repo, contact);
+      res.status(201).json(result);
     } catch (error) { next(error); }
   });
 
@@ -170,3 +166,20 @@ export function friendsRoutes() {
 }
 
 export { requireFriendshipMember };
+
+// Resolve identity before creating a guest. Email matching is exact after
+// normalization; names alone are not reliable account identifiers.
+export async function resolveContactFriend(repo, contact) {
+  const registered = contact.email ? await repo.findUserByEmail(contact.email) : null;
+  if (registered) {
+    await repo.claimContactsForUser(registered);
+    const friendship = await repo.createFriendship(contact.ownerUserId, registered.id);
+    return { friendship, user: repo.publicUser(registered), participantId: registered.id };
+  }
+  const existing = contact.email
+    ? (await repo.listContacts(contact.ownerUserId)).find((row) => row.email === contact.email)
+    : null;
+  const saved = existing || await repo.createContact(contact);
+  const friendship = await repo.createFriendship(contact.ownerUserId, saved.linkedUserId || saved.participantId);
+  return { contact: saved, friendship, participantId: saved.linkedUserId || saved.participantId };
+}

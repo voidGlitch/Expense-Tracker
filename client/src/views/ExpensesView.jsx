@@ -2,7 +2,7 @@
 2 * Enhanced ExpensesView: Everything logged this month with search, category filtering,
 3 * group headers, and enhanced cards
 4 */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pencil, Plus, Receipt, Search, Trash2, ArrowUpRight, ArrowDownRight, Filter } from 'lucide-react';
 import {
   deleteTransaction,
@@ -21,7 +21,7 @@ import {
 import { sharedExpenseEntries } from './sharedExpenseUi.js';
 
 export default function ExpensesView() {
-  const { month, summary, money, apply, activeMonthId } = useStore();
+  const { month, summary, money, apply, activeMonthId, currency } = useStore();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all'); // 'all', 'expense', 'income'
@@ -31,20 +31,30 @@ export default function ExpensesView() {
   const [shared, setShared] = useState(null);
   const [sharedError, setSharedError] = useState('');
 
+  const sharedRequest = useRef(0);
   const loadShared = useCallback(async () => {
+    const request = ++sharedRequest.current;
     try {
       const result = await api.getSharedSummary(activeMonthId);
+      if (request !== sharedRequest.current) return;
       setShared(result);
       setSharedError('');
     } catch (cause) {
+      if (request !== sharedRequest.current) return;
+      setShared(null);
       setSharedError(cause.message);
     }
   }, [activeMonthId]);
 
   useEffect(() => {
+    setShared(null);
+    setSharedError('');
     loadShared();
     window.addEventListener('shared-ledger-updated', loadShared);
-    return () => window.removeEventListener('shared-ledger-updated', loadShared);
+    return () => {
+      ++sharedRequest.current;
+      window.removeEventListener('shared-ledger-updated', loadShared);
+    };
   }, [loadShared]);
 
   const transactions = month?.transactions || [];
@@ -64,10 +74,11 @@ export default function ExpensesView() {
   const groups = useMemo(() => {
     const byDate = new Map();
     for (const txn of filtered) {
-      if (!byDate.has(txn.date)) byDate.set(txn.date, []);
-      byDate.get(txn.date).push(txn);
+      const date = txn.date || '';
+      if (!byDate.has(date)) byDate.set(date, []);
+      byDate.get(date).push(txn);
     }
-    return [...byDate.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+    return [...byDate.entries()].sort((a, b) => String(b[0] || '').localeCompare(String(a[0] || '')));
   }, [filtered]);
 
   if (!month) {
@@ -82,9 +93,12 @@ export default function ExpensesView() {
 
   const used = [...new Set(visibleTransactions.map((txn) => txn.category))].sort();
   const isClosed = month.status === 'closed';
-  const sharedMonthly = shared?.monthly;
-  const currentSpent = sharedMonthly?.currentSpending ?? summary.loggedExpenses;
-  const currentRemaining = sharedMonthly?.remaining ?? summary.remaining;
+  // Personal edits render before the server budget snapshot is saved.
+  // Combine live personal totals with shared cash impact in the budget currency.
+  const sharedMonthly = shared?.monthly?.monthId === activeMonthId ? shared.monthly : null;
+  const sharedCashImpact = sharedMonthly?.byCurrency?.[currency]?.currentCashImpact ?? 0;
+  const currentSpent = summary.loggedExpenses + sharedCashImpact;
+  const currentRemaining = summary.pool - currentSpent;
 
   return (
     <div className="space-y-6">
@@ -197,7 +211,7 @@ export default function ExpensesView() {
                 <div className="flex items-center gap-2 mb-3">
                   <span className="size-1.5 rounded-full bg-slate-400 dark:bg-slate-600" />
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                    {formatDayLabel(date)}
+                    {date ? formatDayLabel(date) : 'Unknown date'}
                   </h3>
                 </div>
 
@@ -242,7 +256,7 @@ export default function ExpensesView() {
                             ? 'text-emerald-600 dark:text-emerald-400'
                             : 'text-slate-900 dark:text-slate-100'
                         }`}>
-                          {txn.type === 'income' ? '+' : '-'}{money(txn.amount)}
+                          {txn.type === 'income' ? '+' : '-'}{txn.shared ? formatMoney(txn.amount, txn.sharedDetail.currency || currency) : money(txn.amount)}
                         </span>
 
                         {!isClosed && !txn.shared && (
