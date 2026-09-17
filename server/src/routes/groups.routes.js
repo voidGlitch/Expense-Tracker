@@ -1,5 +1,6 @@
 /** Group management. Expenses/balances are deliberately added in later phases. */
 import { Router } from 'express';
+import { resolveContactFriend } from './friends.routes.js';
 import { z } from 'zod';
 import {
   addGroupMember,
@@ -82,13 +83,7 @@ async function resolveMemberId(repo, ownerUser, input) {
   const valid = validateContact(contact);
   if (!valid.ok) throw badRequest('Please check the member details.', { fieldErrors: valid.errors });
   if (contact.email && contact.email === ownerUser.email.toLowerCase()) throw badRequest('You cannot add yourself as a guest member.');
-  const saved = await repo.createContact(contact);
-  const registered = saved.email ? await repo.findUserByEmail(saved.email) : null;
-  if (registered && registered.id !== ownerUser.id) {
-    await repo.claimContactsForUser(registered);
-    return registered.id;
-  }
-  return saved.participantId;
+  return (await resolveContactFriend(repo, contact)).participantId;
 }
 
 export function groupsRoutes() {

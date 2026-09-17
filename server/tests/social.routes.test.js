@@ -56,7 +56,8 @@ describe('shared-expense Phase 1 API', () => {
 
     const bob = await account(app, 'Bob', 'bob@example.com');
     const aliceFriends = await alice.agent.get('/api/friends');
-    expect(aliceFriends.body.contacts[0]).toMatchObject({ name: 'Bob (offline)', linkedUserId: bob.user.id });
+    expect(aliceFriends.body.contacts).toHaveLength(0);
+    expect(aliceFriends.body.friends).toHaveLength(1);
     expect(aliceFriends.body.friends[0].user.id).toBe(bob.user.id);
     expect((await bob.agent.get('/api/friends')).body.friends[0].user.name).toBe('Alice');
   });
