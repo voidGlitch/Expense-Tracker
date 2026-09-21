@@ -1,78 +1,42 @@
-const CACHE_NAME = 'expense-manager-v1';
-const urlsToCache = [
-  '/',
-  '/index.html',
-  '/manifest.webmanifest',
-  '/icon.svg',
-  '/icon-192.png',
-  '/icon-512.png',
-];
-
-/**
- * Service worker: cache first for assets, network first for API.
- * Enables offline use and instant load on repeat visits.
- */
-
+const CACHE_NAME = 'expense-manager-v2';
+const shell = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg'];
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      cache.addAll(urlsToCache).catch(() => {
-        // Some URLs might 404 — that's ok, we're just being optimistic.
-      });
-    }),
-  );
-  self.skipWaiting();
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    await cache.addAll(shell).catch(() => {});
+    await self.skipWaiting();
+  })());
 });
-
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((names) => {
-      return Promise.all(
-        names.map((name) => {
-          if (name !== CACHE_NAME) return caches.delete(name);
-          return undefined;
-        }),
-      );
-    }),
-  );
-  self.clients.claim();
+  event.waitUntil((async () => {
+    await Promise.all((await caches.keys()).filter((name) => name.startsWith('expense-manager-') && name !== CACHE_NAME).map((name) => caches.delete(name)));
+    await self.clients.claim();
+  })());
 });
-
 self.addEventListener('fetch', (event) => {
-  const { request } = event;
-  const url = new URL(request.url);
-
-  // API calls: network first, fall back to offline error
+  const { request } = event; const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/')) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response.status === 200) {
-            const cache = caches.open(CACHE_NAME);
-            cache.then((c) => c.put(request, response.clone()));
-          }
-          return response;
-        })
-        .catch(() => {
-          return new Response(
-            JSON.stringify({
-              error: { message: 'Offline — API calls are not available. Your changes are saved locally.' },
-            }),
-            { status: 0, headers: { 'Content-Type': 'application/json' } },
-          );
-        }),
-    );
+    // Account data never goes into a shared service-worker cache. Each signed-in
+    // account has its own explicit local draft/outbox in the application.
+    event.respondWith(fetch(request).catch(() => new Response(JSON.stringify({ error: { message: 'Offline — changes are queued on this device.', offline: true } }), { status: 503, headers: { 'Content-Type': 'application/json' } })));
     return;
   }
-
-  // Assets: cache first, fall back to network
-  event.respondWith(
-    caches
-      .match(request)
-      .then((cached) => cached || fetch(request))
-      .catch(() => {
-        // Offline with no cache — 404
-        return new Response(null, { status: 404 });
-      }),
-  );
+  if (request.method !== 'GET') return;
+  if (request.mode === 'navigate') {
+    event.respondWith((async () => {
+      try {
+        const response = await fetch(request);
+        if (response.ok) { const cache = await caches.open(CACHE_NAME); await cache.put('/index.html', response.clone()); }
+        return response;
+      } catch { return await caches.match('/index.html') || new Response('Offline. Reconnect to load the app.', { status: 503 }); }
+    })());
+    return;
+  }
+  event.respondWith((async () => {
+    const cached = await caches.match(request); if (cached) return cached;
+    const response = await fetch(request);
+    if (response.ok && !response.headers.get('Content-Type')?.includes('text/html')) { const cache = await caches.open(CACHE_NAME); await cache.put(request, response.clone()); }
+    return response;
+  })());
 });

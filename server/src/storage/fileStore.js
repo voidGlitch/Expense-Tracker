@@ -34,6 +34,8 @@ async function readSnapshot(filePath) {
       friendRequests: parsed.friendRequests || {},
       groups: parsed.groups || {},
       contacts: parsed.contacts || {},
+      expenses: parsed.expenses || {},
+      settlements: parsed.settlements || {},
     };
   } catch {
     // Refuse to start rather than silently continuing with an empty database —

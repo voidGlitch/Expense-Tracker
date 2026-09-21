@@ -12,6 +12,7 @@ import {
   DEFAULT_CURRENCY,
   TRANSACTION_TYPE,
   billCommittedAmount,
+  budgetBreakdown,
   formatMonthLabel,
   isDiscretionaryCategory,
   isMonthKey,
@@ -243,11 +244,37 @@ export function buildExportSheets(store, { months = 'all', today = todayKey() } 
   const monthIds = resolveMonthIds(store, months);
   return [
     summarySheet(store, monthIds, today),
+    budgetBreakdownSheet(store, monthIds),
     billsSheet(store, monthIds),
     transactionsSheet(store, monthIds),
     savingsSheet(store),
     billSetupSheet(store),
   ];
+}
+
+/** Explain each headline budget amount using the same detail as the UI. */
+export function budgetBreakdownSheet(store, monthIds) {
+  const rows = [];
+  for (const month of monthsOf(store, monthIds)) {
+    const breakdown = budgetBreakdown(month);
+    const summary = monthSummary(month);
+    for (const [key, section, total, explanation] of [
+      ['commitments', 'Total commitments', summary.commitments, 'Bills + RD + deficit recovery + savings target'],
+      ['pool', 'Discretionary pool', summary.pool, 'Monthly income + extra income - total commitments'],
+      ['spending', 'Discretionary spent', summary.discretionarySpent, 'Personal daily-budget expenses by category; shared transfers excluded'],
+    ]) {
+      for (const row of breakdown[key]) rows.push({ month: formatMonthLabel(month.id), section, item: row.label, amount: row.amount, explanation: row.detail || '' });
+      rows.push({ month: formatMonthLabel(month.id), section, item: 'Section total', amount: total, explanation });
+    }
+    rows.push({ month: formatMonthLabel(month.id), section: 'Remaining', item: 'Left in pool', amount: summary.remaining, explanation: 'Discretionary pool - discretionary spent' });
+  }
+  return { name: 'Budget breakdown', columns: [
+    { key: 'month', header: 'Month', type: 'text', width: 18 },
+    { key: 'section', header: 'Section', type: 'text', width: 24 },
+    { key: 'item', header: 'Item', type: 'text', width: 28 },
+    { key: 'amount', header: 'Amount', type: 'money', width: 16 },
+    { key: 'explanation', header: 'How it is counted', type: 'text', width: 80 },
+  ], rows };
 }
 
 /** Filename like `expenses-2026-09.xlsx`, or `expenses-2026-04-to-2026-09.xlsx`. */
@@ -256,6 +283,4 @@ export function exportFileName(monthIds, extension = 'xlsx') {
   if (monthIds.length === 1) return `expenses-${monthIds[0]}.${extension}`;
   return `expenses-${monthIds[0]}-to-${monthIds[monthIds.length - 1]}.${extension}`;
 }
-
-
 

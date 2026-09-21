@@ -13,7 +13,7 @@ export class ApiError extends Error {
     this.status = status;
     this.fieldErrors = details.fieldErrors || null;
     this.serverRev = details.serverRev ?? null;
-    this.offline = status === 0;
+    this.offline = status === 0 || details.offline === true;
   }
 }
 
@@ -105,10 +105,17 @@ export const api = {
   getGroupTotals: (id) => request(`/groups/${encodeURIComponent(id)}/totals`),
   getSettlementPlan: (id) => request(`/groups/${encodeURIComponent(id)}/settlement-plan`),
   createExpense: (payload) => request('/expenses', { method: 'POST', body: payload }),
+  getSharedOverview: () => request('/shared/overview'),
+  settleAll: (payload) => request('/settlements/settle-all', { method: 'POST', body: payload }),
+  updateSettlement: (id, payload) => request(`/settlements/${encodeURIComponent(id)}`, { method: 'PATCH', body: payload }),
+  restoreExpense: (id, payload) => request(`/expenses/${encodeURIComponent(id)}/restore`, { method: 'POST', body: payload }),
+  commentOnExpense: (id, payload) => request(`/expenses/${encodeURIComponent(id)}/comments`, { method: 'POST', body: payload }),
+  generateOccurrences: (id) => request(`/expenses/${encodeURIComponent(id)}/occurrences`, { method: 'POST', body: {} }),
+  downloadSharedCsv: (type, id) => download(`/shared/export?contextType=${encodeURIComponent(type)}&contextId=${encodeURIComponent(id)}`, 'shared-expenses.csv'),
   updateExpense: (id, payload) => request(`/expenses/${encodeURIComponent(id)}`, { method: 'PATCH', body: payload }),
-  deleteExpense: (id) => request(`/expenses/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  deleteExpense: (id, payload) => request(`/expenses/${encodeURIComponent(id)}`, { method: 'DELETE', body: payload }),
   createSettlement: (payload) => request('/settlements', { method: 'POST', body: payload }),
-  deleteSettlement: (id) => request(`/settlements/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  deleteSettlement: (id, payload) => request(`/settlements/${encodeURIComponent(id)}`, { method: 'DELETE', body: payload }),
   getSharedSummary: (monthId, signal) => request(`/shared/summary${monthId ? `?monthId=${encodeURIComponent(monthId)}` : ''}`, { signal }),
 
   getBudget: (signal) => request('/budget', { signal }),

@@ -38,6 +38,8 @@ export const SIMPLE_SPLIT_METHODS = [
   SPLIT_METHOD.EXACT,
   SPLIT_METHOD.PERCENTAGE,
   SPLIT_METHOD.SHARES,
+  'adjustment',
+  'itemized',
 ];
 
 /* ---------------------------------------------------------------------------
@@ -55,6 +57,25 @@ export function computeSplits(amount, method, memberIds, details = {}) {
   const total = round2(amount);
   const ids = [...new Set((memberIds || []).map(String))];
   if (ids.length === 0 || total <= 0) return [];
+
+  // Adjustments are taken off first; the remainder is shared equally.
+  if (method === 'adjustment') {
+    const adjusted = ids.reduce((sum, id) => sum + toMinor(details[id]), 0);
+    const base = allocateBy(ids, fromMinor(toMinor(total) - adjusted), ids.map(() => 1));
+    return base.map((row) => ({ ...row, amount: fromMinor(toMinor(row.amount) + toMinor(details[row.memberId])) }));
+  }
+  if (method === 'itemized') {
+    const amounts = Object.fromEntries(ids.map((id) => [id, 0]));
+    for (const item of details.items || []) {
+      const selected = [...new Set(item.memberIds || [])].filter((id) => ids.includes(id));
+      for (const part of allocateBy(selected, num(item.amount), selected.map(() => 1))) amounts[part.memberId] += toMinor(part.amount);
+    }
+    // Tax and tip follow each person's item subtotal, with deterministic rounding.
+    const extras = num(details.tax) + num(details.tip);
+    const weights = ids.map((id) => amounts[id]);
+    if (extras) for (const part of allocateBy(ids, extras, weights)) amounts[part.memberId] += toMinor(part.amount);
+    return ids.map((memberId) => ({ memberId, amount: fromMinor(amounts[memberId]) }));
+  }
 
   if (method === SPLIT_METHOD.EXACT) {
     return ids.map((memberId) => ({ memberId, amount: fromMinor(toMinor(details[memberId] || 0)) }));
@@ -75,7 +96,7 @@ export function computeSplits(amount, method, memberIds, details = {}) {
       return Math.max(0, num(raw, 1));
     });
     const sum = weights.reduce((acc, weight) => acc + weight, 0);
-    if (sum <= 0) return computeSplits(total, SPLIT_METHOD.EQUAL, ids);
+    if (sum <= 0) return ids.map((memberId) => ({ memberId, amount: 0 }));
     return allocateBy(ids, total, weights);
   }
 
@@ -85,6 +106,7 @@ export function computeSplits(amount, method, memberIds, details = {}) {
 
 /** Largest-remainder allocation in rupees, so the parts always sum to `total`. */
 function allocateBy(ids, total, weights, denominator = null) {
+  if (!ids.length) return [];
   const sum = denominator ?? weights.reduce((acc, weight) => acc + weight, 0);
   if (sum <= 0) {
     return allocateBy(ids, total, ids.map(() => 1));
@@ -146,7 +168,17 @@ export function makeExpense(partial = {}) {
     date: dayKey(partial.date),
     category: text(partial.category || 'Other', 40) || 'Other',
     notes: text(partial.notes, EXPENSE_NOTES_MAX),
-    paidBy: String(partial.paidBy || ''),
+    paidBy: String(partial.paidBy || partial.payers?.[0]?.memberId || ''),
+    payers: partial.payers?.length ? partial.payers.map((row) => ({ memberId: String(row.memberId), amount: round2(row.amount) })) : [{ memberId: String(partial.paidBy || ''), amount }],
+    kind: partial.kind === 'refund' ? 'refund' : 'expense',
+    refundOf: partial.refundOf || null,
+    revision: partial.revision || 1,
+    idempotencyKey: partial.idempotencyKey || null,
+    comments: partial.comments || [],
+    activity: partial.activity || [],
+    receipt: partial.receipt || null,
+    recurrence: partial.recurrence || null,
+    recurringSourceId: partial.recurringSourceId || null,
     participants: splits.map((split) => split.memberId),
     splitMethod: method,
     splitDetails: partial.splitDetails || {},
@@ -179,6 +211,17 @@ export function validateExpense(expense, { memberIds = null } = {}) {
   if (expense.splits.length === 0) errors.participants = 'Add at least one person to split with.';
 
   const detailValues = expense.participants.map((id) => num(expense.splitDetails?.[id], 0));
+  const payers = expense.payers || [{ memberId: expense.paidBy, amount: expense.amount }];
+  if (payers.some((row) => !row.memberId || !Number.isFinite(Number(row.amount)) || row.amount < 0) || splitsTotal(payers) !== expense.amount) errors.payers = 'Payments must be nonnegative and add up to the expense total.';
+  if (new Set(payers.map((row) => row.memberId)).size !== payers.length) errors.payers = 'Include each payer only once.';
+  if (new Set(expense.splits.map((row) => row.memberId)).size !== expense.splits.length) errors.splits = 'Include each participant only once.';
+  if (!Number.isSafeInteger(toMinor(expense.amount))) errors.amount = 'Amount is too large.';
+  if (['exact', 'percentage', 'shares'].includes(expense.splitMethod) && detailValues.some((value) => value < 0)) errors.splits = 'Shares cannot be negative.';
+  if (expense.splitMethod === 'itemized') {
+    const details = expense.splitDetails;
+    if (!(details.items?.length) || details.items.some((item) => !(item.amount > 0) || !item.memberIds?.length || item.memberIds.some((id) => !expense.participants.includes(id))) || num(details.tax) < 0 || num(details.tip) < 0) errors.splits = 'Assign each positive item to participants; tax and tip cannot be negative.';
+    if (toMinor((details.items || []).reduce((sum, item) => sum + num(item.amount), 0)) + toMinor(details.tax) + toMinor(details.tip) !== toMinor(expense.amount)) errors.splits = 'Items, tax and tip must equal the expense total.';
+  }
   if (expense.splitMethod === SPLIT_METHOD.EXACT) {
     const exactMinor = detailValues.reduce((sum, value) => sum + toMinor(value), 0);
     if (exactMinor !== toMinor(expense.amount)) {
@@ -197,6 +240,7 @@ export function validateExpense(expense, { memberIds = null } = {}) {
     const allowed = new Set(memberIds.map(String));
     const strangers = [...new Set([
       expense.paidBy,
+      ...payers.map((row) => row.memberId),
       ...expense.splits.map((split) => split.memberId),
     ])].filter((id) => id && !allowed.has(id));
     if (strangers.length > 0) {
@@ -244,6 +288,11 @@ export function makeSettlement(partial = {}) {
     contextId: String(partial.contextId || ''),
     createdBy: String(partial.createdBy || ''),
     createdAt: nowIso(partial.createdAt),
+    revision: partial.revision || 1,
+    idempotencyKey: partial.idempotencyKey || null,
+    allocations: partial.allocations || [],
+    activity: partial.activity || [],
+    updatedAt: partial.updatedAt || null,
     deletedAt: partial.deletedAt ? nowIso(partial.deletedAt) : null,
     deletedBy: partial.deletedBy ? String(partial.deletedBy) : null,
   };

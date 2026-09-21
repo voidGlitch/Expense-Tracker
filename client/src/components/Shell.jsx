@@ -26,7 +26,7 @@ const NAV = [
   { id: 'expenses', label: 'Spending', icon: Wallet, description: 'Track your expenses' },
   { id: 'bills', label: 'Bills', icon: ReceiptText, description: 'Manage recurring bills' },
   { id: 'savings', label: 'Savings', icon: PiggyBank, description: 'Track your savings' },
-  { id: 'splitwise', label: 'Splitwise', icon: Users, description: 'Shared expenses' },
+  { id: 'splitwise', label: 'Shared Expenses', icon: Users, description: 'Friends, groups and payments' },
   { id: 'history', label: 'History', icon: History, description: 'Past months' },
   { id: 'settings', label: 'Settings', icon: SettingsIcon, description: 'Preferences' },
 ];

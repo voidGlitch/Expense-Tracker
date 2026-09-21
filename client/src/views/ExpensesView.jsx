@@ -19,9 +19,10 @@ import {
   Badge, Button, Card, CardHeader, EmptyState, Select, Stat, TextInput,
 } from '../components/ui.jsx';
 import { sharedExpenseEntries } from './sharedExpenseUi.js';
+import { BudgetBreakdown } from '../components/BudgetBreakdown.jsx';
 
 export default function ExpensesView() {
-  const { month, summary, money, apply, activeMonthId, currency } = useStore();
+  const { month, summary, money, apply, activeMonthId, currency, sharedBudgetError } = useStore();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all'); // 'all', 'expense', 'income'
@@ -93,15 +94,14 @@ export default function ExpensesView() {
 
   const used = [...new Set(visibleTransactions.map((txn) => txn.category))].sort();
   const isClosed = month.status === 'closed';
-  // Personal edits render before the server budget snapshot is saved.
-  // Combine live personal totals with shared cash impact in the budget currency.
-  const sharedMonthly = shared?.monthly?.monthId === activeMonthId ? shared.monthly : null;
-  const sharedCashImpact = sharedMonthly?.byCurrency?.[currency]?.currentCashImpact ?? 0;
-  const currentSpent = summary.loggedExpenses + sharedCashImpact;
-  const currentRemaining = summary.pool - currentSpent;
+  // These are the personal budget totals used by Home and the Excel export.
+  // Shared cash transfers belong to the separate ledger, not daily allowance.
+  const currentSpent = summary.loggedExpenses;
+  const currentRemaining = summary.remaining;
 
   return (
     <div className="space-y-6">
+      {sharedBudgetError && <Banner variant="warn">Shared spending could not refresh. Budget totals may be incomplete: {sharedBudgetError}</Banner>}
       {/* Top Stats */}
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-5 shadow-sm">
@@ -113,7 +113,7 @@ export default function ExpensesView() {
         <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-5 shadow-sm">
           <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">All Logged</span>
           <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100 tnum">{money(currentSpent)}</p>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{summary.transactionCount + sharedPersonalEntries.length} entries including shared cash impact</p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Personal entries plus your shared-expense shares · repayments excluded</p>
         </div>
 
         <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-5 shadow-sm">
@@ -121,9 +121,11 @@ export default function ExpensesView() {
           <p className={`mt-2 text-2xl font-bold tnum ${currentRemaining < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
             {money(currentRemaining)}
           </p>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{summary.daysLeft} days to go</p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Discretionary pool minus discretionary spent · {summary.daysLeft} days to go</p>
         </div>
       </div>
+
+      <BudgetBreakdown month={month} summary={summary} money={money} />
 
       {/* Derived from the authoritative shared-expense ledger. These values are
           deliberately separate from normal personal transactions: a bill you
@@ -132,7 +134,7 @@ export default function ExpensesView() {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <h2 className="font-bold text-slate-900 dark:text-slate-100">Shared expense position</h2>
-            <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">Personal shares stay expenses; money others owe you stays receivable until it is settled.</p>
+            <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">Shared shares, payments and repayments are tracked here separately from your personal budget and Excel totals. Settlements change debts, not daily allowance.</p>
           </div>
           <Button variant="ghost" size="sm" onClick={loadShared}>Refresh</Button>
         </div>

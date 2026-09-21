@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'jsdom',
+    setupFiles: ['./src/testSetup.js'],
     include: ['src/**/*.test.{js,jsx}'],
     reporters: ['default'],
   },

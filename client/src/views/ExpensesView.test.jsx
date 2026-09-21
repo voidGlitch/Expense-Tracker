@@ -4,7 +4,7 @@ import { monthSummary } from '@expense/shared';
 import ExpensesView from './ExpensesView.jsx';
 import SharedExpensesView from './SharedExpensesView.jsx';
 
-const mocks = vi.hoisted(() => ({ store: null, getSharedSummary: vi.fn(), getFriends: vi.fn(), getGroups: vi.fn() }));
+const mocks = vi.hoisted(() => ({ store: null, getSharedSummary: vi.fn(), getFriends: vi.fn(), getGroups: vi.fn(), getSharedOverview: vi.fn() }));
 vi.mock('../state/StoreContext.jsx', () => ({ useStore: () => mocks.store }));
 vi.mock('../state/AuthContext.jsx', () => ({ useAuth: () => ({ user: { id: 'me', name: 'Me' } }) }));
 vi.mock('../lib/api.js', () => ({ api: mocks }));
@@ -23,10 +23,43 @@ beforeEach(() => {
   mocks.getSharedSummary.mockResolvedValue(response());
   mocks.getFriends.mockResolvedValue({ friends: [], contacts: [] });
   mocks.getGroups.mockResolvedValue({ groups: [] });
+  mocks.getSharedOverview.mockResolvedValue({ friends: [], contexts: [], balances: {} });
+  window.localStorage.clear();
 });
 afterEach(cleanup);
 
 describe('Spending regressions', () => {
+  it('matches the September Excel remaining balance despite shared cash movements', async () => {
+    const transactions = [
+      ['Eating out', 6023.48], ['Misc', 74], ['Shopping', 2182.21], ['Transport', 4935],
+    ].map(([category, amount], i) => ({ id: `p${i}`, date: '2026-09-17', type: 'expense', category, amount }));
+    setMonth('2026-09', transactions);
+    mocks.store.month.income = 75298;
+    mocks.store.month.savingsTarget = 5000;
+    mocks.store.month.bills = [25000, 25000, 300, 7000].map((actualAmount, i) => ({ id: `b${i}`, name: `Bill ${i + 1}`, status: 'confirmed', actualAmount }));
+    mocks.store.summary = monthSummary(mocks.store.month);
+    const shared = response();
+    shared.monthly.currentSpending = 23227.19;
+    shared.monthly.remaining = -10229.19;
+    shared.monthly.byCurrency.INR.currentCashImpact = 10012.5;
+    mocks.getSharedSummary.mockResolvedValue(shared);
+    render(<ExpensesView />);
+    await screen.findByText('Shared expense');
+    expect(screen.getByText('All Logged').nextElementSibling.textContent).toBe('money:13214.69');
+    expect(screen.getByText('Remaining').nextElementSibling.textContent).toBe('money:-216.69');
+    const commitments = screen.getByText('Total commitments').closest('details');
+    fireEvent.click(commitments.querySelector('summary'));
+    expect(commitments.open).toBe(true);
+    expect(commitments.textContent).toContain('money:62300');
+    expect(commitments.textContent).toContain('Savings target');
+    expect(screen.getByText('Discretionary pool').closest('details').textContent).toContain('money:12998');
+    expect(screen.getByText('Discretionary spent').closest('details').textContent).toContain('money:6023.48');
+    mocks.getSharedSummary.mockResolvedValue({ ...shared, transactions: [] });
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(screen.queryByText('Shared expense')).toBeNull());
+    expect(screen.getByText('Remaining').nextElementSibling.textContent).toBe('money:-216.69');
+  });
+
   it('renders a split as an expense and supports search and type filters', async () => {
     render(<ExpensesView />);
     await screen.findByText('Shared expense');
@@ -45,8 +78,8 @@ describe('Spending regressions', () => {
     for (const amount of [100, 200, 0]) {
       setMonth('2026-09', amount ? [{ id: 'p1', type: 'expense', date: '2026-09-17', category: 'Groceries', note: 'Receipt expense', amount }] : []);
       view.rerender(<ExpensesView />);
-      expect(screen.getByText('All Logged').nextElementSibling.textContent).toBe(`money:${500 + amount}`);
-      expect(screen.getByText('Remaining').nextElementSibling.textContent).toBe(`money:${500 - amount}`);
+      expect(screen.getByText('All Logged').nextElementSibling.textContent).toBe(`money:${amount}`);
+      expect(screen.getByText('Remaining').nextElementSibling.textContent).toBe(`money:${1000 - amount}`);
     }
   });
 
@@ -98,11 +131,12 @@ describe('Spending regressions', () => {
 
 it('keeps Add friend beside expense and group actions on both tabs and opens the form', async () => {
   render(<SharedExpensesView />);
-  await screen.findByText('No friends yet');
-  const friend = screen.getByRole('button', { name: 'Add friend' });
+  await screen.findByRole('heading', { name: 'Shared Expenses' });
+  const friend = screen.getAllByRole('button', { name: 'Add friend' }).find((button) => button.closest('.shared-toolbar'));
   expect(friend.parentElement).toBe(screen.getByRole('button', { name: 'Add expense' }).parentElement);
-  expect(friend.parentElement).toBe(screen.getByRole('button', { name: 'Add group' }).parentElement);
-  fireEvent.click(screen.getByRole('button', { name: 'groups' }));
+  expect(friend.parentElement).toBe(screen.getAllByRole('button', { name: 'Add group' }).find((button) => button.closest('.shared-toolbar')).parentElement);
+  fireEvent.click(screen.getByRole('button', { name: 'Groups', exact: true }));
   fireEvent.click(friend);
   expect(await screen.findByRole('dialog', { name: 'Add friend' })).toBeTruthy();
 });
+

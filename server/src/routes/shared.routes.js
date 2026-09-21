@@ -8,7 +8,9 @@
  * "personal transaction" to clean up.
  */
 import { Router } from 'express';
-import { discretionaryPool, expenseSplits, loggedExpensesTotal, pairwiseBalances } from '@expense/shared';
+import { dailyAllowance, discretionaryPool, expenseSplits, loggedExpensesTotal, pairwiseBalances, participantShares, sharedBudgetEntries, withSharedBudget, simplifyDebts, netBalancesObject } from '@expense/shared';
+import { userLedgers, overview } from './readModels.js';
+import { ledgerContext, ledgerRows } from './ledger.js';
 
 const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100;
 
@@ -25,10 +27,9 @@ function emptyCurrency() {
 }
 
 function effectForExpense(expense, userId) {
-  const personalShare = expenseSplits(expense)
-    .filter((split) => split.memberId === String(userId))
-    .reduce((sum, split) => round2(sum + split.amount), 0);
-  const amountPaidByCurrentUser = String(expense.paidBy) === String(userId) ? round2(expense.amount) : 0;
+  const mine = participantShares({ ...expense, splits: expenseSplits(expense) }).find((row) => row.memberId === userId);
+  const personalShare = mine?.owedShare || 0;
+  const amountPaidByCurrentUser = mine?.paidShare || 0;
   const netBalance = round2(amountPaidByCurrentUser - personalShare);
   return {
     id: `shared-expense:${expense.id}:${userId}`,
@@ -54,25 +55,32 @@ function effectForExpense(expense, userId) {
 
 export function sharedRoutes() {
   const router = Router();
+  router.get('/overview', async (req, res, next) => {
+    try { res.json(overview(await userLedgers(req.repo, req.user.id, { includeDeleted: true }), req.user.id)); }
+    catch (error) { next(error); }
+  });
+  router.get('/export', async (req, res, next) => {
+    try {
+      const context = await ledgerContext(req.repo, req.query.contextType, req.query.contextId, req.user.id);
+      const rows = await ledgerRows(req.repo, context, { includeDeleted: true });
+      const quote = (value) => '"' + String(value ?? '').replace(/^[=+@-]/, "'$&").replaceAll('"', '""') + '"';
+      const header = ['Type', 'ID', 'Date', 'Description', 'Currency', 'Amount', 'Your paid share', 'Your owed share', 'Deleted', 'From', 'To'];
+      const data = rows.expenses.map((expense) => {
+        const mine = participantShares({ ...expense, splits: expenseSplits(expense) }).find((r) => r.memberId === req.user.id);
+        return [expense.kind || 'expense', expense.id, expense.date, expense.description, expense.currency, expense.amount, mine?.paidShare || 0, mine?.owedShare || 0, expense.deletedAt || '', '', ''];
+      });
+      data.push(...rows.settlements.map((r) => ['payment', r.batchId || r.id, r.date, r.note, r.currency, r.amount, '', '', r.deletedAt || '', r.fromUserId, r.toUserId]));
+      res.type('text/csv').attachment('shared-expenses.csv').send([header, ...data].map((row) => row.map(quote).join(',')).join('\r\n'));
+    } catch (error) { next(error); }
+  });
 
   router.get('/summary', async (req, res, next) => {
     try {
-      const [friendships, groups] = await Promise.all([
-        req.repo.listFriendships(req.user.id),
-        req.repo.listGroups(req.user.id),
-      ]);
-      const contexts = [
-        ...friendships.map((row) => ({ type: 'friendship', id: row.id, title: 'Friendship' })),
-        ...groups.map((row) => ({ type: 'group', id: row.id, title: row.name })),
-      ];
-      const loaded = await Promise.all(contexts.map(async (context) => ({
-        ...context,
-        expenses: await req.repo.listExpenses({ contextType: context.type, contextId: context.id }),
-        settlements: await req.repo.listSettlements({ contextType: context.type, contextId: context.id }),
-      })));
+      const loaded = await userLedgers(req.repo, req.user.id);
 
       const byCurrency = {};
       const transactions = [];
+      const cashPaymentsSeen = new Set();
       const ensure = (currency) => {
         const key = currency || 'INR';
         byCurrency[key] ||= emptyCurrency();
@@ -84,7 +92,7 @@ export function sharedRoutes() {
           const effect = effectForExpense(expense, req.user.id);
           // A member may view a group expense without participating in it. It
           // belongs in group activity, but not in their Expense Manager.
-          if (effect.personalShare <= 0 && effect.amountPaidByCurrentUser <= 0) continue;
+          if (effect.personalShare === 0 && effect.amountPaidByCurrentUser === 0) continue;
           const totals = ensure(effect.currency);
           totals.personalExpense = round2(totals.personalExpense + effect.personalShare);
           totals.cashPaid = round2(totals.cashPaid + effect.amountPaidByCurrentUser);
@@ -97,14 +105,17 @@ export function sharedRoutes() {
         for (const currency of currencies) {
           const expenses = context.expenses.filter((row) => (row.currency || 'INR') === currency);
           const settlements = context.settlements.filter((row) => (row.currency || 'INR') === currency);
-          for (const debt of pairwiseBalances(expenses, settlements)) {
+          for (const debt of context.simplify ? simplifyDebts(netBalancesObject(expenses, settlements)) : pairwiseBalances(expenses, settlements)) {
             const totals = ensure(currency);
             if (debt.to === req.user.id) totals.receivable = round2(totals.receivable + debt.amount);
             if (debt.from === req.user.id) totals.payable = round2(totals.payable + debt.amount);
           }
         }
 
-        for (const settlement of context.settlements) {
+        for (const leg of context.settlements) {
+          if (cashPaymentsSeen.has(leg.batchId || leg.id)) continue;
+          cashPaymentsSeen.add(leg.batchId || leg.id);
+          const settlement = leg.batchId ? { ...leg, id: leg.batchId, amount: leg.cashAmount, fromUserId: leg.cashFromUserId, toUserId: leg.cashToUserId } : leg;
           const totals = ensure(settlement.currency);
           if (settlement.fromUserId === req.user.id) {
             totals.settlementSent = round2(totals.settlementSent + settlement.amount);
@@ -157,10 +168,12 @@ export function sharedRoutes() {
               remainingPayable: values.remainingPayable,
             };
           }
-          const primaryCurrency = Object.keys(byCurrency)[0] || 'INR';
+          const primaryCurrency = doc.store.settings?.currency || 'INR';
           const sharedCashImpact = monthlyByCurrency[primaryCurrency]?.currentCashImpact || 0;
           const normalSpending = loggedExpensesTotal(month);
-          const currentSpending = round2(normalSpending + sharedCashImpact);
+          const budgetEntries = sharedBudgetEntries(loaded.flatMap((context) => context.expenses), req.user.id, monthId, primaryCurrency);
+          const projectedMonth = withSharedBudget(month, budgetEntries);
+          const currentSpending = loggedExpensesTotal(projectedMonth);
           monthly = {
             monthId,
             currency: primaryCurrency,
@@ -168,7 +181,10 @@ export function sharedRoutes() {
             sharedCashImpact,
             currentSpending,
             budgetPool: discretionaryPool(month),
-            remaining: round2(discretionaryPool(month) - currentSpending),
+            // Match the personal budget/export. Shared cash impact is exposed
+            // separately and must not be deducted from the allowance again.
+            remaining: dailyAllowance(projectedMonth).remaining,
+            budgetEntries,
             byCurrency: monthlyByCurrency,
           };
         }
@@ -186,3 +202,4 @@ export function sharedRoutes() {
 
   return router;
 }
+

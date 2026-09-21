@@ -160,9 +160,11 @@ export function makeGroup(partial = {}) {
     createdBy,
     createdAt: nowIso(partial.createdAt),
     members,
-    settings: {
-      simplifyDebts: partial.settings?.simplifyDebts !== false,
-    },
+      settings: {
+        simplifyDebts: partial.settings?.simplifyDebts !== false,
+      },
+      archivedAt: partial.archivedAt || null,
+      formerMemberIds: partial.formerMemberIds || [],
   };
 }
 

@@ -9,6 +9,9 @@ import { emptyStore, normalizeStore } from '@expense/shared/schema';
 import { contactParticipantId, friendPair } from '@expense/shared/split';
 import { config } from '../env.js';
 import { conflict, notFound } from '../util/http.js';
+import { randomUUID } from 'node:crypto';
+import { inSettlementScope } from './settlementAllocations.js';
+import { linkExpenseParticipant, linkSettlementParticipant } from './linkParticipant.js';
 
 const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true, index: true },
@@ -83,6 +86,8 @@ const friendRequestSchema = new mongoose.Schema({
 }, { versionKey: false });
 
 const groupSchema = new mongoose.Schema({
+  archivedAt: { type: String, default: null },
+  formerMemberIds: { type: [String], default: [] },
   _id: { type: String },
   name: { type: String, required: true },
   description: { type: String, default: '' },
@@ -129,6 +134,17 @@ contactSchema.index({ ownerUserId: 1, email: 1 });
  * date and context.
  */
 const expenseSchema = new mongoose.Schema({
+  payers: { type: [{ _id: false, memberId: String, amount: Number }], default: undefined },
+  kind: { type: String, default: 'expense' },
+  refundOf: String,
+  revision: { type: Number, default: 1 },
+  idempotencyKey: String,
+  requestHash: String,
+  comments: { type: [mongoose.Schema.Types.Mixed], default: [] },
+  activity: { type: [mongoose.Schema.Types.Mixed], default: [] },
+  receipt: mongoose.Schema.Types.Mixed,
+  recurrence: mongoose.Schema.Types.Mixed,
+  recurringSourceId: String,
   _id: { type: String },
   description: { type: String, required: true },
   amount: { type: Number, required: true },
@@ -158,6 +174,12 @@ const expenseSchema = new mongoose.Schema({
 expenseSchema.index({ contextType: 1, contextId: 1, date: -1 });
 
 const settlementSchema = new mongoose.Schema({
+  allocations: { type: [mongoose.Schema.Types.Mixed], default: [] },
+  revision: { type: Number, default: 1 },
+  idempotencyKey: String,
+  requestHash: String,
+  activity: { type: [mongoose.Schema.Types.Mixed], default: [] },
+  updatedAt: String,
   _id: { type: String },
   fromUserId: { type: String, required: true },
   toUserId: { type: String, required: true },
@@ -210,6 +232,7 @@ export function createMongoRepo(
 
     async init() {
       const connection = await getConnection(uri, dbName);
+      const LedgerLock = connection.models.LedgerLock || connection.model('LedgerLock', new mongoose.Schema({ _id: String, token: String, expiresAt: Date }, { versionKey: false }));
 
       const User = connection.models.User
         || connection.model('User', userSchema);
@@ -530,6 +553,7 @@ export function createMongoRepo(
                 const context = { contextType: 'friendship', contextId: String(row._id) };
                 await Expense.updateMany(context, { $set: { contextId: existing.id } });
                 await Settlement.updateMany(context, { $set: { contextId: existing.id } });
+                await Settlement.updateMany({ allocations: { $elemMatch: { contextType: 'friendship', contextId: String(row._id) } } }, { $set: { 'allocations.$[part].contextId': existing.id } }, { arrayFilters: [{ 'part.contextType': 'friendship', 'part.contextId': String(row._id) }] });
                 await Friendship.deleteOne({ _id: row._id });
               } else {
                 await Friendship.findByIdAndUpdate(row._id, { $set: { userA, userB } });
@@ -552,21 +576,16 @@ export function createMongoRepo(
               }
               if (members.length !== (group.members || []).length) await Group.findByIdAndUpdate(group._id, { $set: { members } });
             }
-            const expenseRows = await Expense.find({ $or: [{ paidBy: guestId }, { participants: guestId }, { 'splits.memberId': guestId }] }).lean();
+            const expenseRows = await Expense.find({ $or: [{ paidBy: guestId }, { 'payers.memberId': guestId }, { participants: guestId }, { 'splits.memberId': guestId }] }).lean();
             for (const expense of expenseRows) {
-              const splitDetails = {};
-              for (const [key, value] of Object.entries(expense.splitDetails || {})) splitDetails[key === guestId ? userId : key] = value;
-              await Expense.findByIdAndUpdate(expense._id, {
-                $set: {
-                  paidBy: expense.paidBy === guestId ? userId : expense.paidBy,
-                  participants: [...new Set((expense.participants || []).map((id) => id === guestId ? userId : id))],
-                  splitDetails,
-                  splits: (expense.splits || []).map((split) => ({ memberId: split.memberId === guestId ? userId : split.memberId, amount: split.amount })),
-                },
-              });
+              const { _id, ...patch } = linkExpenseParticipant(expense, guestId, userId);
+              await Expense.findByIdAndUpdate(_id, { $set: patch });
             }
-            await Settlement.updateMany({ fromUserId: guestId }, { $set: { fromUserId: userId } });
-            await Settlement.updateMany({ toUserId: guestId }, { $set: { toUserId: userId } });
+            const paymentRows = await Settlement.find({ $or: [{ fromUserId: guestId }, { toUserId: guestId }, { 'allocations.fromUserId': guestId }, { 'allocations.toUserId': guestId }] }).lean();
+            for (const payment of paymentRows) {
+              const { _id, ...patch } = linkSettlementParticipant(payment, guestId, userId);
+              await Settlement.findByIdAndUpdate(_id, { $set: patch });
+            }
             await this.createFriendship(ownerId, userId);
             await Contact.updateOne({ _id: contact._id }, {
               $set: { linkedUserId: userId, userId, updatedAt: now },
@@ -633,6 +652,9 @@ export function createMongoRepo(
           const rows = await Expense.find(filter).sort({ date: -1, createdAt: -1 }).lean();
           return rows.map(withId);
         },
+        async listFormerGroups(userId) {
+          return (await Group.find({ formerMemberIds: String(userId) }).lean()).map(withId);
+        },
 
         async findExpenseById(id) {
           return withId(await Expense.findById(String(id)).lean());
@@ -640,6 +662,7 @@ export function createMongoRepo(
 
         async createExpense(expense) {
           const created = await Expense.create({
+            ...expense,
             _id: expense.id,
             description: expense.description,
             amount: expense.amount,
@@ -695,10 +718,10 @@ export function createMongoRepo(
         /* --- Settlements ----------------------------------------------- */
 
         async listSettlements({ contextType, contextId, includeDeleted = false } = {}) {
-          const filter = { contextType: String(contextType || ''), contextId: String(contextId || '') };
+          const filter = { $or: [{ contextType, contextId }, { allocations: { $elemMatch: { contextType, contextId } } }] };
           if (!includeDeleted) filter.deletedAt = null;
           const rows = await Settlement.find(filter).sort({ date: -1, createdAt: -1 }).lean();
-          return rows.map(withId);
+          return rows.flatMap((row) => inSettlementScope(withId(row), contextType, contextId));
         },
 
         async findSettlementById(id) {
@@ -707,6 +730,7 @@ export function createMongoRepo(
 
         async createSettlement(settlement) {
           const created = await Settlement.create({
+            ...settlement,
             _id: settlement.id,
             fromUserId: settlement.fromUserId,
             toUserId: settlement.toUserId,
@@ -721,6 +745,30 @@ export function createMongoRepo(
             createdAt: settlement.createdAt,
           });
           return withId(created.toObject());
+        },
+
+        async updateSettlement(id, patch) {
+          const { id: ignored, _id, ...rest } = patch;
+          const updated = await Settlement.findByIdAndUpdate(String(id), { $set: rest }, { returnDocument: 'after' }).lean();
+          if (!updated) throw notFound('Settlement not found.');
+          return withId(updated);
+        },
+
+        async acquireLedgerLock() {
+          const token = randomUUID();
+          const deadline = Date.now() + 8000;
+          while (Date.now() < deadline) {
+            try {
+              const acquired = await LedgerLock.findOneAndUpdate({ _id: 'shared', expiresAt: { $lte: new Date() } }, { $set: { token, expiresAt: new Date(Date.now() + 60000) } }, { upsert: true, returnDocument: 'after' }).lean();
+              if (acquired?.token === token) {
+                const heartbeat = setInterval(() => { LedgerLock.updateOne({ _id: 'shared', token }, { $set: { expiresAt: new Date(Date.now() + 60000) } }).catch(() => {}); }, 20000);
+                heartbeat.unref();
+                return async () => { clearInterval(heartbeat); await LedgerLock.deleteOne({ _id: 'shared', token }); };
+              }
+            } catch (error) { if (error.code !== 11000) throw error; }
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+          throw conflict('Another ledger change is being saved. Please retry.');
         },
 
         async deleteSettlement(id, deletedBy = null) {
@@ -791,3 +839,4 @@ export function createMongoRepo(
     },
   };
 }
+

@@ -15,6 +15,8 @@ const SIZES = {
 
 export function Modal({ open, onClose, title, subtitle, children, footer, size = 'md', className = '' }) {
   const panelRef = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   const [mounted, setMounted] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
 
@@ -34,13 +36,22 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
   useEffect(() => {
     if (!open) return undefined;
 
-    const onKeyDown = (event) => { if (event.key === 'Escape') onClose(); };
+    const previousFocus = document.activeElement;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') closeRef.current();
+      if (event.key !== 'Tab') return;
+      const focusable = [...(panelRef.current?.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]') || [])];
+      const first = focusable[0]; const last = focusable.at(-1);
+      if (!first) { event.preventDefault(); panelRef.current?.focus(); }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
     document.addEventListener('keydown', onKeyDown);
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
     // Small delay to allow react to finish rendering content before searching DOM
-    setTimeout(() => {
+    const focusTimer = setTimeout(() => {
       const panel = panelRef.current;
       const target = panel?.querySelector('[data-autofocus]')
         || panel?.querySelector('input:not([type=hidden]), select, textarea, button:not([aria-label="Close"])')
@@ -50,9 +61,11 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
 
     return () => {
       document.removeEventListener('keydown', onKeyDown);
+      clearTimeout(focusTimer);
       document.body.style.overflow = previousOverflow;
+      previousFocus?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!shouldRender) return null;
 

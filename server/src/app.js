@@ -20,6 +20,7 @@ import { groupsRoutes } from './routes/groups.routes.js';
 import { expensesRoutes } from './routes/expenses.routes.js';
 import { settlementsRoutes } from './routes/settlements.routes.js';
 import { sharedRoutes } from './routes/shared.routes.js';
+import { lockLedgerWrites } from './routes/ledgerMutation.js';
 import { notFound } from './util/http.js';
 
 export function createApp(repo) {
@@ -56,6 +57,7 @@ export function createApp(repo) {
 
   app.use((req, _res, next) => { req.repo = repo; next(); });
   app.use(attachUser);
+  app.use(['/api/expenses', '/api/settlements', '/api/groups', '/api/friends', '/api/auth/register'], lockLedgerWrites);
 
   app.get('/api/health', (_req, res) => {
     res.json({

@@ -31,7 +31,7 @@ export default function MonthCloseDialog({ open, onClose, monthId }) {
   function close() {
     setError(null);
     try {
-      const result = apply((store_) => closeMonthInStore(store_, monthId, { recoveryMonths }));
+      const result = apply((store_) => closeMonthInStore(store_, monthId, { recoveryMonths, sharedTransactions: month.sharedTransactions || [] }));
       setOutcome(result);
     } catch (caught) {
       setError(caught.message);

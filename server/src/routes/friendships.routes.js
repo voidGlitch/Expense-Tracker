@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { balanceWith, friendshipOther, pairwiseBalances, summaryFor, totalsWith } from '@expense/shared';
 import { requireFriendshipMember } from './friends.routes.js';
 import { ledgerRows, namedMembers } from './ledger.js';
+import { userLedgers, friendPosition } from './readModels.js';
 
 export function friendshipsRoutes() {
   const router = Router();
@@ -29,7 +30,10 @@ export function friendshipsRoutes() {
       const otherId = friendshipOther(friendship, req.user.id);
       const currencies = [...new Set([...rows.expenses, ...rows.settlements].map((row) => row.currency || 'INR'))];
       const balances = Object.fromEntries(currencies.map((currency) => [currency, balanceWith(rows.expenses.filter((row) => row.currency === currency), rows.settlements.filter((row) => row.currency === currency), req.user.id, otherId)]));
-      res.json({ balances, summary: summaryFor(rows.expenses, rows.settlements, req.user.id) });
+      const overall = friendPosition(await userLedgers(req.repo, req.user.id), req.user.id, otherId);
+      const overallBalances = Object.fromEntries(Object.entries(overall.byCurrency).map(([currency, amount]) => [currency, { direction: amount > 0 ? 'owesYou' : amount < 0 ? 'youOwe' : 'settled', amount: Math.abs(amount), to: otherId }]));
+      // Preserve explicit zero currencies from the direct ledger after settlement.
+      res.json({ balances: { ...balances, ...overallBalances }, directBalances: balances, scopes: overall.scopes, revision: overall.revision, summary: summaryFor(rows.expenses, rows.settlements, req.user.id) });
     } catch (error) { next(error); }
   });
   router.get('/:id/totals', async (req, res, next) => {
