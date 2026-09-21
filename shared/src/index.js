@@ -7,6 +7,9 @@
  */
 export * from './engine/index.js';
 export * from './engine/balances.js';
+export * from './engine/money.js';
+export * from './engine/sharedBudget.js';
+export * from './engine/recurrence.js';
 export * from './data/config.js';
 export * from './data/schema.js';
 export * from './data/split.js';

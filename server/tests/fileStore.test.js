@@ -25,6 +25,23 @@ afterEach(async () => {
 const read = async () => JSON.parse(await fs.readFile(file, 'utf8'));
 
 describe('file storage driver', () => {
+  it('retains friendship expenses and repayments after a restart', async () => {
+    const first = await createFileRepo(file).init();
+    const alice = await first.createUser({ name: 'Alice', email: 'alice@example.com', passwordHash: 'test' });
+    const bob = await first.createUser({ name: 'Bob', email: 'bob@example.com', passwordHash: 'test' });
+    const friendship = await first.createFriendship(alice.id, bob.id);
+    const context = { contextType: 'friendship', contextId: friendship.id };
+    const expense = { ...context, id: 'expense-1', amount: 1000, paidBy: alice.id, participants: [alice.id, bob.id], splits: [{ memberId: alice.id, amount: 500 }, { memberId: bob.id, amount: 500 }] };
+    const settlement = { ...context, id: 'settlement-1', amount: 200, fromUserId: bob.id, toUserId: alice.id };
+    await first.createExpense(expense);
+    await first.createSettlement(settlement);
+    await first.close();
+    const second = await createFileRepo(file).init();
+    expect(await second.listExpenses(context)).toEqual([expense]);
+    expect(await second.listSettlements(context)).toEqual([settlement]);
+    expect(await second.findFriendshipBetween(alice.id, bob.id)).toMatchObject({ id: friendship.id });
+    await second.close();
+  });
   it('creates the file (and its folder) on first write', async () => {
     const repo = await createFileRepo(file).init();
     await repo.createUser({ email: 'a@b.co', name: 'A', passwordHash: 'x' });

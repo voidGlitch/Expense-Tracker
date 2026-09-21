@@ -29,6 +29,8 @@ import {
   friendPair,
 } from '@expense/shared/split';
 import { conflict, notFound } from '../util/http.js';
+import { inSettlementScope } from './settlementAllocations.js';
+import { linkExpenseParticipant, linkSettlementParticipant } from './linkParticipant.js';
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
@@ -295,6 +297,9 @@ export function createMemoryRepo(seed = {}) {
           if (existing && existing.id !== friendshipId) {
             for (const collection of [expenses, settlements]) {
               for (const [rowId, row] of collection) {
+                if (row.allocations?.some((part) => part.contextType === 'friendship' && part.contextId === friendshipId)) {
+                  row.allocations = row.allocations.map((part) => part.contextType === 'friendship' && part.contextId === friendshipId ? { ...part, contextId: existing.id } : part);
+                }
                 if (row.contextType === 'friendship' && row.contextId === friendshipId) {
                   collection.set(rowId, { ...row, contextId: existing.id });
                 }
@@ -324,22 +329,13 @@ export function createMemoryRepo(seed = {}) {
           return nextDetails;
         };
         for (const [expenseId, expense] of expenses) {
+          if (![expense.paidBy, ...(expense.participants || []), ...(expense.payers || []).map((p) => p.memberId)].includes(guestId)) continue;
           const participants = [...new Set((expense.participants || []).map((participant) => participant === guestId ? user.id : participant))];
           const splits = (expense.splits || []).map((split) => ({ ...split, memberId: split.memberId === guestId ? user.id : split.memberId }));
-          expenses.set(expenseId, {
-            ...expense,
-            paidBy: expense.paidBy === guestId ? user.id : expense.paidBy,
-            participants,
-            splitDetails: rewriteDetails(expense.splitDetails),
-            splits,
-          });
+          expenses.set(expenseId, linkExpenseParticipant(expense, guestId, user.id));
         }
         for (const [settlementId, settlement] of settlements) {
-          settlements.set(settlementId, {
-            ...settlement,
-            fromUserId: settlement.fromUserId === guestId ? user.id : settlement.fromUserId,
-            toUserId: settlement.toUserId === guestId ? user.id : settlement.toUserId,
-          });
+          if ([settlement.fromUserId, settlement.toUserId, ...(settlement.allocations || []).flatMap((part) => [part.fromUserId, part.toUserId])].includes(guestId)) settlements.set(settlementId, linkSettlementParticipant(settlement, guestId, user.id));
         }
         await this.createFriendship(current.ownerUserId, user.id);
       }
@@ -416,7 +412,7 @@ export function createMemoryRepo(seed = {}) {
       const type = String(contextType || '');
       const id = String(contextId || '');
       return [...settlements.values()]
-        .filter((row) => row.contextType === type && row.contextId === id)
+        .flatMap((row) => inSettlementScope(row, type, id))
         .filter((row) => includeDeleted || !row.deletedAt)
         .sort((a, b) => String(b.date).localeCompare(String(a.date))
           || String(b.createdAt).localeCompare(String(a.createdAt)))
@@ -433,6 +429,13 @@ export function createMemoryRepo(seed = {}) {
       settlements.set(record.id, record);
       touched();
       return clone(record);
+    },
+
+    async updateSettlement(id, patch) {
+      const current = settlements.get(String(id));
+      if (!current) throw notFound('Settlement not found.');
+      const next = { ...current, ...clone(patch), id: current.id };
+      settlements.set(current.id, next); touched(); return clone(next);
     },
 
     async deleteSettlement(id, deletedBy = null) {
@@ -463,6 +466,9 @@ export function createMemoryRepo(seed = {}) {
         .filter((g) => (g.members || []).some((m) => String(m.userId ?? m.participantId) === key || String(m.participantId) === key))
         .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
         .map(clone);
+    },
+    async listFormerGroups(userId) {
+      return [...groups.values()].filter((g) => (g.formerMemberIds || []).includes(String(userId))).map(clone);
     },
 
     async findGroupById(id) {

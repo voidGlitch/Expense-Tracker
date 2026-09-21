@@ -3,6 +3,7 @@
  * endpoints that stream them out as .xlsx / .json.
  */
 import { describe, expect, it } from 'vitest';
+import ExcelJS from 'exceljs';
 import {
   addTransaction, applySetup, confirmBillInStore, emptyStore, ensureMonth, monthSummary,
 } from '@expense/shared';
@@ -153,6 +154,20 @@ describe('savingsSheet and billSetupSheet', () => {
 });
 
 describe('workbook', () => {
+  it('exports readable breakdown rows that reconcile to the summary', async () => {
+    const { buffer } = await buildWorkbook(sampleStore(), { months: MONTH });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+    const sheet = workbook.getWorksheet('Budget breakdown');
+    const rows = [];
+    sheet.eachRow((row, index) => { if (index > 1) rows.push(row.values.slice(1)); });
+    expect(rows).toContainEqual(['September 2026', 'Total commitments', 'Rent', 18000, 'Confirmed bill']);
+    expect(rows).toContainEqual(['September 2026', 'Total commitments', 'Recurring deposit (RD)', 5000, '']);
+    expect(rows.filter(row => row[2] === 'Section total').map(row => [row[1], row[3]])).toEqual([
+      ['Total commitments', 27480], ['Discretionary pool', 5020], ['Discretionary spent', 620],
+    ]);
+    expect(rows.find(row => row[1] === 'Remaining')[3]).toBe(4400);
+  });
   it('formats money in the currency the user chose', () => {
     expect(currencyFormat(emptyStore())).toBe('"₹"#,##0.00');
     const usd = { settings: { currency: 'USD' } };
@@ -165,9 +180,9 @@ describe('workbook', () => {
     expect(exportFileName([], 'json')).toBe('expenses-empty.json');
   });
 
-  it('builds five sheets in a fixed tab order', () => {
+  it('includes a budget breakdown after the summary', () => {
     expect(buildExportSheets(sampleStore(), { months: 'all' }).map((s) => s.name))
-      .toEqual(['Summary', 'Bills', 'Transactions', 'Savings', 'Bill setup']);
+      .toEqual(['Summary', 'Budget breakdown', 'Bills', 'Transactions', 'Savings', 'Bill setup']);
   });
 
   it('writes a real .xlsx buffer', async () => {

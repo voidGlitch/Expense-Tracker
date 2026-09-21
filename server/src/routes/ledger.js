@@ -17,10 +17,10 @@ export async function ledgerContext(repo, contextType, contextId, userId) {
   throw notFound('Expense ledger not found.');
 }
 
-export async function ledgerRows(repo, context) {
+export async function ledgerRows(repo, context, { includeDeleted = false } = {}) {
   const [expenses, settlements] = await Promise.all([
-    repo.listExpenses({ contextType: context.type, contextId: context.id }),
-    repo.listSettlements({ contextType: context.type, contextId: context.id }),
+    repo.listExpenses({ contextType: context.type, contextId: context.id, includeDeleted }),
+    repo.listSettlements({ contextType: context.type, contextId: context.id, includeDeleted }),
   ]);
   return { expenses, settlements };
 }

@@ -8,14 +8,14 @@ import {
   categoryColor,
   isDiscretionaryCategory,
 } from '../data/config.js';
-import { committedBillsTotal, confirmedBillsTotal, pendingBills } from './bills.js';
+import { billCommittedAmount, committedBillsTotal, confirmedBillsTotal, pendingBills } from './bills.js';
 import { dayOfMonth, daysInMonth, monthKeyOf, todayKey } from './dates.js';
 
 const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100;
 const num = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
 const clamp01 = (value) => Math.min(1, Math.max(0, value));
 
-const expenses = (month) => (month.transactions || [])
+const expenses = (month) => [...(month.transactions || []), ...(month.sharedTransactions || [])]
   .filter((t) => t.type === TRANSACTION_TYPE.EXPENSE);
 
 /**
@@ -55,6 +55,34 @@ export function plannedSavings(month) {
 /** SRS §3.2 — everything claimed before discretionary money exists. */
 export function totalCommitments(month) {
   return round2(committedBillsTotal(month) + plannedSavings(month));
+}
+
+/** Explain the same budget rules used by monthSummary, without counting shared transfers. */
+export function budgetBreakdown(month) {
+  const commitments = (month.bills || []).map((bill) => ({
+    label: bill.name || bill.category || 'Bill',
+    amount: billCommittedAmount(bill),
+    detail: bill.status === 'confirmed' ? 'Confirmed bill' : 'Reserved bill estimate',
+  }));
+  commitments.push(
+    { label: 'Recurring deposit (RD)', amount: num(month.rdInstallment) },
+    { label: 'Deficit recovery', amount: num(month.recoveryInstallment) },
+    { label: 'Savings target', amount: num(month.savingsTarget) },
+  );
+  const spendingByCategory = new Map();
+  for (const transaction of expenses(month)) {
+    if (!isDiscretionaryCategory(transaction.category)) continue;
+    spendingByCategory.set(transaction.category, round2((spendingByCategory.get(transaction.category) || 0) + num(transaction.amount)));
+  }
+  return {
+    commitments,
+    pool: [
+      { label: 'Monthly income', amount: num(month.income) },
+      { label: 'Extra income', amount: extraIncomeTotal(month) },
+      { label: 'Less total commitments', amount: -totalCommitments(month) },
+    ],
+    spending: [...spendingByCategory].map(([label, amount]) => ({ label, amount })).sort((a, b) => b.amount - a.amount),
+  };
 }
 
 /** SRS §3.2 — Discretionary Pool. */
@@ -226,4 +254,3 @@ export function overspendWarnings(month, today = todayKey()) {
   }
   return warnings;
 }
-

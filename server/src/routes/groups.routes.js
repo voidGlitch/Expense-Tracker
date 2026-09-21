@@ -17,6 +17,8 @@ import {
   pairwiseBalances,
   simplifyDebts,
   totalsPerCurrency,
+  CURRENCIES,
+  minor,
 } from '@expense/shared';
 import { badRequest, forbidden, notFound } from '../util/http.js';
 import { ledgerRows, namedMembers } from './ledger.js';
@@ -25,11 +27,11 @@ const groupInput = z.object({
   name: z.string().trim().min(1).max(60),
   description: z.string().trim().max(240).optional().default(''),
   icon: z.string().trim().max(8).nullable().optional(),
-  currency: z.string().trim().optional().default('INR'),
+  currency: z.enum(Object.keys(CURRENCIES)).optional().default('INR'),
   memberIds: z.array(z.string().trim().min(1)).max(50).optional().default([]),
   simplifyDebts: z.boolean().optional().default(true),
 });
-const groupPatch = groupInput.pick({ name: true, description: true, icon: true, currency: true, simplifyDebts: true }).partial();
+const groupPatch = groupInput.pick({ name: true, description: true, icon: true, currency: true, simplifyDebts: true }).partial().extend({ archived: z.boolean().optional() });
 const memberInput = z.object({
   userId: z.string().trim().min(1).optional(),
   contactId: z.string().trim().min(1).optional(),
@@ -134,7 +136,7 @@ export function groupsRoutes() {
       const rows = await ledgerRows(req.repo, { type: 'group', id: group.id });
       const currencies = [...new Set([...rows.expenses, ...rows.settlements].map((row) => row.currency || group.currency))];
       const balances = Object.fromEntries(currencies.map((currency) => [currency, netBalancesObject(rows.expenses.filter((row) => row.currency === currency), rows.settlements.filter((row) => row.currency === currency))]));
-      const debts = Object.fromEntries(currencies.map((currency) => [currency, pairwiseBalances(rows.expenses.filter((row) => row.currency === currency), rows.settlements.filter((row) => row.currency === currency))]));
+      const debts = Object.fromEntries(currencies.map((currency) => [currency, group.settings?.simplifyDebts !== false ? simplifyDebts(balances[currency]) : pairwiseBalances(rows.expenses.filter((row) => row.currency === currency), rows.settlements.filter((row) => row.currency === currency))]));
       res.json({ balances, debts, members: await namedMembers(req.repo, group.members.map((member) => member.participantId || member.userId)) });
     } catch (error) { next(error); }
   });
@@ -169,18 +171,19 @@ export function groupsRoutes() {
       });
       const valid = validateGroup(candidate);
       if (!valid.ok) throw badRequest('Please check the highlighted fields.', { fieldErrors: valid.errors });
-      res.json({ group: await withMembers(req.repo, await req.repo.updateGroup(current.id, candidate)) });
+      res.json({ group: await withMembers(req.repo, await req.repo.updateGroup(current.id, { ...candidate, archivedAt: parsed.data.archived === undefined ? current.archivedAt : parsed.data.archived ? new Date().toISOString() : null })) });
     } catch (error) { next(error); }
   });
 
   router.delete('/:id', async (req, res, next) => {
-    try { await requireGroupOwner(req.repo, req.params.id, req.user.id); await req.repo.deleteGroup(req.params.id); res.status(204).end(); }
+    try { await requireGroupOwner(req.repo, req.params.id, req.user.id); await req.repo.updateGroup(req.params.id, { archivedAt: new Date().toISOString() }); res.status(204).end(); }
     catch (error) { next(error); }
   });
 
   router.post('/:id/members', async (req, res, next) => {
     try {
       const group = await requireGroupOwner(req.repo, req.params.id, req.user.id);
+      if (group.archivedAt) throw badRequest('Unarchive the group before adding members.');
       const parsed = memberInput.safeParse(req.body ?? {});
       if (!parsed.success) throw badRequest('Please choose a valid user.');
       const memberId = await resolveMemberId(req.repo, req.user, parsed.data);
@@ -191,10 +194,18 @@ export function groupsRoutes() {
 
   router.delete('/:id/members/:userId', async (req, res, next) => {
     try {
-      const group = await requireGroupOwner(req.repo, req.params.id, req.user.id);
-      if (req.params.userId === req.user.id) throw badRequest('The owner cannot leave a group. Delete the group instead.');
+      const group = await requireGroupMember(req.repo, req.params.id, req.user.id);
+      if (req.params.userId !== req.user.id && groupRole(group, req.user.id) !== 'owner') throw forbidden('Only the owner can remove another member.');
+      if (req.params.userId === group.createdBy) throw badRequest('The owner must archive the group instead of leaving.');
       if (!isGroupMember(group, req.params.userId)) throw notFound('That person is not in this group.');
-      res.json({ group: await withMembers(req.repo, await req.repo.updateGroup(group.id, removeGroupMember(group, req.params.userId))) });
+      const rows = await ledgerRows(req.repo, { type: 'group', id: group.id });
+      const currencies = [...new Set([...rows.expenses, ...rows.settlements].map((r) => r.currency))];
+      if (currencies.some((currency) => {
+        const expenses = rows.expenses.filter((r) => r.currency === currency); const settlements = rows.settlements.filter((r) => r.currency === currency);
+        const debts = group.settings?.simplifyDebts !== false ? simplifyDebts(netBalancesObject(expenses, settlements)) : pairwiseBalances(expenses, settlements);
+        return debts.some((r) => (r.from === req.params.userId || r.to === req.params.userId) && minor(r.amount));
+      })) throw badRequest('Settle this member’s balances in every currency before removing them.');
+      res.json({ group: await withMembers(req.repo, await req.repo.updateGroup(group.id, { ...removeGroupMember(group, req.params.userId), formerMemberIds: [...new Set([...(group.formerMemberIds || []), req.params.userId])] })) });
     } catch (error) { next(error); }
   });
 

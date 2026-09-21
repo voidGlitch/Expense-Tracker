@@ -1,11 +1,30 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { makeApp } from './helpers.js';
+import { makeApp, patchStore } from './helpers.js';
+import { addTransaction, applySetup } from '@expense/shared';
 
 const password = 'ledgerpass1';
 async function account(app, name, email) { const agent = request.agent(app); const result = await agent.post('/api/auth/register').send({ name, email, password }); return { agent, user: result.body.user }; }
 async function setup(app) { const a = await account(app, 'Rahul', 'rahul@test.com'); const b = await account(app, 'Amit', 'amit@test.com'); const ask = await a.agent.post('/api/friends/request').send({ userId: b.user.id }); const accepted = await b.agent.post(`/api/friends/${ask.body.request.id}/accept`).send({}); return { a, b, friendship: accepted.body.friendship }; }
 describe('ledger API', () => {
+  it('adds a separately recorded own shared share once under the new personal-budget rule', async () => {
+    const { app } = await makeApp();
+    const { a, b, friendship } = await setup(app);
+    const saved = await patchStore(a.agent, store => {
+      let next = applySetup(store, { monthId: '2026-09', income: 75298, savingsTarget: 5000,
+        billDefinitions: [25000, 25000, 300, 7000].map((amount, i) => ({ name: `Bill ${i}`, category: 'Other', amountType: 'fixed', amount, frequency: 'monthly', dueDay: 1, paymentMode: 'scheduled' })) });
+      return addTransaction(next, '2026-09', { date: '2026-09-17', category: 'Eating out', amount: 13214.69 }).store;
+    });
+    expect(saved.status).toBe(200);
+    const expense = await a.agent.post('/api/expenses').send({ description: 'Shared dinner', amount: 20025, date: '2026-09-17', paidBy: a.user.id,
+      participants: [a.user.id, b.user.id], splitMethod: 'equal', contextType: 'friendship', contextId: friendship.id });
+    expect(expense.status).toBe(201);
+    const settled = await b.agent.post('/api/settlements').send({ fromUserId: b.user.id, toUserId: a.user.id, amount: 10012.5, method: 'cash', date: '2026-09-17', contextType: 'friendship', contextId: friendship.id });
+    expect(settled.status).toBe(201);
+    const summary = await a.agent.get('/api/shared/summary?monthId=2026-09');
+    expect(summary.body.monthly).toMatchObject({ normalSpending: 13214.69, sharedCashImpact: 10012.5, currentSpending: 23227.19, budgetPool: 12998, remaining: -10229.19 });
+    expect(summary.body.monthly.budgetEntries).toHaveLength(1);
+  });
   it('implements the 1,000 → 400 → 600 partial-settlement example without double counting', async () => {
     const { app } = await makeApp(); const { a, b, friendship } = await setup(app);
     const expense = await a.agent.post('/api/expenses').send({ description: 'Dinner', amount: 2000, paidBy: a.user.id, participants: [a.user.id, b.user.id], splitMethod: 'equal', contextType: 'friendship', contextId: friendship.id });

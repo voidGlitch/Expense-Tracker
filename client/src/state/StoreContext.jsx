@@ -16,6 +16,7 @@ import {
   monthSummary,
   overspendWarnings,
   savingsOverview,
+  withSharedBudget,
 } from '@expense/shared';
 import { api } from '../lib/api.js';
 import { formatMoney } from '../lib/money.js';
@@ -48,6 +49,27 @@ export function StoreProvider({ children }) {
   const [save, setSave] = useState({ status: 'idle', at: null, message: null });
   const [parked, setParked] = useState(null);
   const [activeMonthId, setActiveMonthId] = useState(currentMonthKey);
+  const [sharedEntries, setSharedEntries] = useState([]);
+  const [sharedBudgetError, setSharedBudgetError] = useState('');
+  useEffect(() => {
+    let generation = 0; let disposed = false;
+    setSharedEntries([]);
+    const load = async () => {
+      const attempt = ++generation;
+      if (!userId) return;
+      try {
+        const result = await api.getSharedSummary();
+        if (!disposed && attempt === generation) {
+          const seen = new Set();
+          setSharedEntries((result.transactions || []).filter((row) => row.sourceType === 'shared_expense' && row.personalShare && !seen.has(row.sourceId) && seen.add(row.sourceId)).map((row) => ({ id: `shared:${row.sourceId}:${userId}`, sourceId: row.sourceId, shared: true, type: 'expense', amount: row.personalShare, date: row.date, currency: row.currency, category: row.category, note: row.description })));
+          setSharedBudgetError('');
+        }
+      } catch (error) { if (!disposed && attempt === generation) setSharedBudgetError(error.message); }
+    };
+    load();
+    window.addEventListener('shared-ledger-updated', load); window.addEventListener('focus', load); window.addEventListener('online', load);
+    return () => { disposed = true; window.removeEventListener('shared-ledger-updated', load); window.removeEventListener('focus', load); window.removeEventListener('online', load); };
+  }, [userId]);
 
   const storeRef = useRef(null);
   const revRef = useRef(0);
@@ -280,7 +302,8 @@ export function StoreProvider({ children }) {
   }, [theme]);
 
   const months = useMemo(() => (store ? listMonthIds(store) : []), [store]);
-  const month = useMemo(() => (store ? getMonth(store, activeMonthId) : null), [store, activeMonthId]);
+  const projectedStore = useMemo(() => store ? { ...store, months: store.months.map((month) => withSharedBudget(month, sharedEntries.filter((row) => row.currency === (store.settings.currency || 'INR') && row.date?.startsWith(month.id)))) } : null, [store, sharedEntries]);
+  const month = useMemo(() => (projectedStore ? getMonth(projectedStore, activeMonthId) : null), [projectedStore, activeMonthId]);
   const summary = useMemo(() => (month ? monthSummary(month) : null), [month]);
   const warnings = useMemo(() => (month ? overspendWarnings(month) : []), [month]);
   const savings = useMemo(() => (store ? savingsOverview(store.savings) : null), [store]);
@@ -289,10 +312,11 @@ export function StoreProvider({ children }) {
   const money = useCallback((value, options) => formatMoney(value, currency, options), [currency]);
 
   const value = useMemo(() => ({
-    store,
+    store: projectedStore,
     rev,
     loading,
     loadError,
+    sharedBudgetError,
     save,
     parked,
     needsSetup: Boolean(store) && !store.settings?.onboardingComplete,
@@ -313,7 +337,7 @@ export function StoreProvider({ children }) {
     restoreParked,
     discardParked,
   }), [
-    store, rev, loading, loadError, save, parked, months, month, activeMonthId,
+    store, projectedStore, rev, loading, loadError, sharedBudgetError, save, parked, months, month, activeMonthId,
     summary, warnings, savings, currency, money, theme, apply, saveNow, reload,
     importBackup, restoreParked, discardParked,
   ]);

@@ -14,7 +14,7 @@ export function categorySpending(month) {
 
   const categories = {};
 
-  for (const txn of month.transactions) {
+  for (const txn of [...month.transactions, ...(month.sharedTransactions || [])]) {
     if (txn.type !== 'expense') continue;
     const category = txn.category || 'Uncategorized';
     categories[category] = (categories[category] || 0) + (txn.amount || 0);
@@ -77,7 +77,7 @@ export function weeklySpending(month) {
 
   const weeks = { week1: 0, week2: 0, week3: 0, week4: 0, week5: 0 };
 
-  for (const txn of month.transactions) {
+  for (const txn of [...month.transactions, ...(month.sharedTransactions || [])]) {
     if (txn.type !== 'expense' || !txn.date) continue;
 
     const day = parseInt(txn.date.split('-')[2], 10);

@@ -223,8 +223,10 @@ export function closeMonthInStore(store, monthId, options = {}) {
     return { store, result: month.closing?.result ?? 0, suggestion: { type: 'none', amount: 0 }, alreadyClosed: true };
   }
 
-  const outcome = closeMonthCalc(month, options);
-  let next = replaceMonth(store, outcome.month);
+  const outcome = closeMonthCalc({ ...month, sharedTransactions: options.sharedTransactions || month.sharedTransactions || [] }, options);
+  // Freeze the reconciliation result, not a second copy of shared ledger rows.
+  const { sharedTransactions: projectedShares, ...closedMonth } = outcome.month;
+  let next = replaceMonth(store, closedMonth);
   const savings = next.savings;
 
   const rd = num(month.rdInstallment) > 0
@@ -324,4 +326,3 @@ export function applySetup(store, setup) {
   next = updateSettings(next, { onboardingComplete: true });
   return refreshMonth(next, monthId);
 }
-

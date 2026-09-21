@@ -19,6 +19,7 @@ import {
 import { useStore } from '../state/StoreContext.jsx';
 import { CategoryDoughnut, PaceChart } from '../components/charts.jsx';
 import { BillList } from '../components/BillList.jsx';
+import { BudgetBreakdown } from '../components/BudgetBreakdown.jsx';
 import { Modal } from '../components/Modal.jsx';
 import {
   Badge, Banner, Button, Card, CardHeader, EmptyState, Field, MoneyInput, ProgressBar, Stat,
@@ -75,7 +76,7 @@ function MonthPlanModal({ open, onClose, month, currency, apply }) {
 }
 
 export default function Dashboard({ onAddExpense, navigate }) {
-  const { store, month, summary, warnings, savings, currency, money, apply, activeMonthId } = useStore();
+  const { store, month, summary, warnings, savings, currency, money, apply, activeMonthId, sharedBudgetError } = useStore();
   const [editingPlan, setEditingPlan] = useState(false);
   const [closing, setClosing] = useState(false);
 
@@ -106,6 +107,7 @@ export default function Dashboard({ onAddExpense, navigate }) {
 
   return (
     <div className="space-y-6">
+      {sharedBudgetError && <Banner variant="warn">Shared spending could not refresh. Budget totals may be incomplete: {sharedBudgetError}</Banner>}
       {/* Warnings & Alerts */}
       {warnings.map((warning) => (
         <Banner key={warning.code} variant={WARN_TONE[warning.level] || 'info'}>
@@ -266,6 +268,8 @@ export default function Dashboard({ onAddExpense, navigate }) {
           </p>
         </div>
       </div>
+
+      <BudgetBreakdown month={month} summary={summary} money={money} />
 
       {/* Main Grid: Bills & Visual Analytics */}
       <div className="grid gap-6 lg:grid-cols-2">
