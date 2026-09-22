@@ -9,7 +9,7 @@ export function sharedBudgetEntries(expenses, userId, monthId, currency) {
     seen.add(expense.id);
     const share = participantShares({ ...expense, splits: expenseSplits(expense) }).find((row) => row.memberId === userId)?.owedShare || 0;
     if (!share) return [];
-    return [{ id: `shared:${expense.id}:${userId}`, sourceId: expense.id, sourceType: 'shared_expense', shared: true, date: expense.date, type: 'expense', amount: share, category: expense.category || 'Other', note: expense.description, currency: expense.currency }];
+    return [{ id: `shared:${expense.id}:${userId}`, sourceId: expense.id, sourceType: 'shared_expense', shared: true, date: expense.date, type: 'expense', amount: share, category: `${expense.description || expense.category || 'Shared expense'} (shared expense)`, note: expense.description, currency: expense.currency }];
   });
 }
 export function withSharedBudget(month, entries = []) {
