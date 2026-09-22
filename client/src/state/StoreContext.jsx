@@ -66,7 +66,7 @@ export function StoreProvider({ children }) {
           // full amount paid. Non-payers carry no spending until they record a
           // settlement payment back to the payer.
           const entries = transactions.filter((row) => row.sourceType === 'shared_expense' && Number(row.amountPaidByCurrentUser) > 0 && !seen.has(row.sourceId) && seen.add(row.sourceId)).map((row) => ({ id: `shared:${row.sourceId}:${userId}`, sourceId: row.sourceId, shared: true, type: 'expense', amount: row.amountPaidByCurrentUser, date: row.date, currency: row.currency, category: `${row.description || row.category || 'Shared expense'} (shared expense)`, note: row.description }));
-          entries.push(...transactions.filter((row) => ['settlement_received', 'settlement_sent'].includes(row.sourceType)).map((row) => ({ id: `shared:${row.sourceId}:${userId}`, sourceId: row.sourceId, shared: true, type: row.sourceType === 'settlement_received' ? 'income' : 'expense', amount: row.amount, date: row.date, currency: row.currency, category: 'Settlement', note: row.description })));
+          entries.push(...transactions.filter((row) => row.sourceType === 'settlement_sent').map((row) => ({ id: `shared:${row.sourceId}:${userId}`, sourceId: row.sourceId, shared: true, type: 'expense', amount: row.amount, date: row.date, currency: row.currency, category: `${row.description || 'Shared expense'} (shared expense)`, note: row.description })));
           setSharedEntries(entries);
           setSharedBudgetError('');
         }

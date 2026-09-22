@@ -122,7 +122,7 @@ export function sharedRoutes() {
             transactions.push({
               id: `settlement-sent:${settlement.id}:${req.user.id}`,
               sourceType: 'settlement_sent', sourceId: settlement.id, contextType: context.type, contextId: context.id, contextTitle: context.title,
-              date: settlement.date, description: 'Settlement sent', category: 'Settlement', currency: settlement.currency,
+              date: settlement.date, description: context.expenses[0]?.description || 'Shared expense settlement', category: 'Settlement', currency: settlement.currency,
               amount: settlement.amount, personalShare: 0, receivable: 0, payable: -settlement.amount, netBalance: settlement.amount,
             });
           }

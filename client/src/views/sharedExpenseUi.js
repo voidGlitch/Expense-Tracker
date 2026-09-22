@@ -24,7 +24,7 @@ export function sharedExpenseEntries(shared, monthId) {
 export function sharedRepaymentEntries(shared, monthId) {
   const seen = new Set();
   return (shared?.transactions || []).filter((txn) => {
-    if (!['settlement_received', 'settlement_sent'].includes(txn.sourceType) || !String(txn.date || '').startsWith(monthId || '') || !(Number(txn.amount) > 0)) return false;
+    if (txn.sourceType !== 'settlement_received' || !String(txn.date || '').startsWith(monthId || '') || !(Number(txn.amount) > 0)) return false;
     const key = txn.sourceType + ':' + (txn.sourceId || txn.id);
     if (seen.has(key)) return false;
     seen.add(key);
