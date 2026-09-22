@@ -22,7 +22,7 @@ import { BillList } from '../components/BillList.jsx';
 import { BudgetBreakdown } from '../components/BudgetBreakdown.jsx';
 import { Modal } from '../components/Modal.jsx';
 import {
-  Badge, Banner, Button, Card, CardHeader, EmptyState, Field, MoneyInput, ProgressBar, Stat,
+  Badge, Banner, Button, Card, CardHeader, EmptyState, Field, MoneyInput, ProgressBar, Select, Stat,
 } from '../components/ui.jsx';
 import MonthCloseDialog from '../components/MonthCloseDialog.jsx';
 
@@ -76,7 +76,7 @@ function MonthPlanModal({ open, onClose, month, currency, apply }) {
 }
 
 export default function Dashboard({ onAddExpense, navigate }) {
-  const { store, month, summary, warnings, savings, currency, money, apply, activeMonthId, sharedBudgetError } = useStore();
+  const { store, month, summary, warnings, savings, currency, money, apply, activeMonthId, setActiveMonthId, sharedBudgetError } = useStore();
   const [editingPlan, setEditingPlan] = useState(false);
   const [closing, setClosing] = useState(false);
 
@@ -90,11 +90,7 @@ export default function Dashboard({ onAddExpense, navigate }) {
         <EmptyState
           icon={CalendarCheck}
           title="That month is not in your budget yet"
-          action={
-            <Button variant="primary" size="sm" onClick={onAddExpense}>
-              Log first expense
-            </Button>
-          }
+          action={null}
         >
           Pick another month from the dropdown, or log something with a date in this one.
         </EmptyState>
@@ -170,6 +166,14 @@ export default function Dashboard({ onAddExpense, navigate }) {
 
               {/* Action Buttons */}
               <div className="flex items-center gap-2">
+                <Select
+                  aria-label="Select month"
+                  value={activeMonthId}
+                  onChange={(event) => setActiveMonthId(event.target.value)}
+                  className="h-9 w-auto min-w-[10rem] border-white/30 bg-white/10 py-0 text-xs font-semibold text-white"
+                >
+                  {(store.months || []).map((item) => <option key={item.id || item} value={item.id || item}>{formatMonthLabel(item.id || item)}</option>)}
+                </Select>
                 <button
                   type="button"
                   onClick={() => setEditingPlan(true)}
@@ -314,7 +318,6 @@ export default function Dashboard({ onAddExpense, navigate }) {
               <EmptyState
                 icon={Receipt}
                 title="No expenses logged"
-                action={<Button variant="primary" size="sm" onClick={onAddExpense}>Add expense</Button>}
               >
                 Log your transactions to see a category-wise breakdown.
               </EmptyState>
@@ -367,7 +370,7 @@ export default function Dashboard({ onAddExpense, navigate }) {
         {recent.length === 0 ? (
           <div className="p-8">
             <EmptyState icon={Receipt} title="No transactions yet">
-              Tap the "+ Add expense" button in the header to record your first transaction.
+              Open Spending to record your first transaction.
             </EmptyState>
           </div>
         ) : (

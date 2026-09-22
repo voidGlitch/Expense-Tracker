@@ -7,12 +7,10 @@ import {
   Cloud, CloudOff, History, Home, PiggyBank, Plus, ReceiptText, RefreshCw,
   Settings as SettingsIcon, Wallet, ChevronLeft, ChevronRight, Menu, X, Users
 } from 'lucide-react';
-import { formatMonthLabel } from '@expense/shared';
 import { useAuth } from '../state/AuthContext.jsx';
 import { useStore } from '../state/StoreContext.jsx';
 import { usePathRoute } from '../lib/usePathRoute.js';
 import { Badge, Banner, Button, Select, Spinner } from './ui.jsx';
-import { ExpenseFormModal } from './ExpenseForm.jsx';
 import Dashboard from '../views/Dashboard.jsx';
 import ExpensesView from '../views/ExpensesView.jsx';
 import BillsView from '../views/BillsView.jsx';
@@ -145,28 +143,6 @@ function SyncBanners() {
   }
 
   return null;
-}
-
-/** Enhanced month picker with better styling */
-function MonthPicker() {
-  const { months, activeMonthId, setActiveMonthId, store } = useStore();
-  const closed = new Set((store.months || []).filter((m) => m.status === 'closed').map((m) => m.id));
-
-  return (
-    <div className="flex items-center gap-2">
-      <Select
-        value={activeMonthId}
-        onChange={(event) => setActiveMonthId(event.target.value)}
-        className="h-10 w-auto min-w-[11rem] py-0 text-sm font-semibold bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm border-slate-200 dark:border-slate-700"
-      >
-        {months.map((id) => (
-          <option key={id} value={id}>
-            {formatMonthLabel(id)}{closed.has(id) ? ' · closed' : ''}
-          </option>
-        ))}
-      </Select>
-    </div>
-  );
 }
 
 /** Desktop sidebar with collapsible feature */
@@ -322,8 +298,7 @@ function MobileNav({ route, navigate }) {
 
 export default function Shell() {
   const [route, navigate] = usePathRoute();
-  const { month, activeMonthId } = useStore();
-  const [adding, setAdding] = useState(false);
+  const { month } = useStore();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -348,46 +323,10 @@ export default function Shell() {
 
         {/* Main Content */}
         <main className="min-w-0 flex-1 pb-24 lg:pb-8">
-          {/* Header */}
-          <header className="sticky top-0 z-40 border-b border-slate-200/50 bg-white/80 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/80">
-            <div className="flex flex-wrap items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4 lg:px-6">
-              {/* Mobile Logo */}
-              <div className="hidden items-center gap-2 sm:flex lg:hidden">
-                <div className="flex items-center justify-center size-9 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/25">
-                  <PiggyBank size={18} aria-hidden="true" />
-                </div>
-              </div>
-
-              {/* Month Picker */}
-              <MonthPicker />
-
-              {/* Closed Badge */}
-              {isClosed && (
-                <Badge variant="secondary" size="sm">Closed</Badge>
-              )}
-
-              {/* Right Actions */}
-              <div className="ml-auto flex items-center gap-3">
-                <SaveState />
-                <Button
-                  variant="primary"
-                  size="sm"
-                  icon={Plus}
-                  onClick={() => setAdding(true)}
-                  aria-label="Add expense"
-                  className="shadow-lg shadow-primary-500/25 hover:shadow-xl hover:shadow-primary-500/30 transition-shadow"
-                >
-                  <span className="sm:hidden">Add</span>
-                  <span className="hidden sm:inline">Add expense</span>
-                </Button>
-              </div>
-            </div>
-          </header>
-
           {/* Page Content */}
           <div className="space-y-5 p-4 lg:p-6 animate-fade-in">
             <SyncBanners />
-            <View onAddExpense={() => setAdding(true)} navigate={navigate} />
+            <View navigate={navigate} />
           </div>
         </main>
       </div>
@@ -395,12 +334,6 @@ export default function Shell() {
       {/* Mobile Navigation */}
       <MobileNav route={route} navigate={navigate} />
 
-      {/* Expense Modal */}
-      <ExpenseFormModal
-        open={adding}
-        monthId={activeMonthId}
-        onClose={() => setAdding(false)}
-      />
     </div>
   );
 }

@@ -113,7 +113,7 @@ export default function ExpensesView() {
 
   return (
     <div className="spending-view">
-      <header className="spending-title"><h1>Spending</h1><p>{formatMonthLabel(activeMonthId)} · Your monthly expenses</p></header>
+      <header className="spending-title"><div><h1>Spending</h1><p>{formatMonthLabel(activeMonthId)} · Your monthly expenses</p></div><Button variant="primary" size="sm" icon={Plus} onClick={() => setAdding(true)}>Add expense</Button></header>
       {sharedBudgetError && <Banner variant="warn">Shared spending could not refresh. Budget totals may be incomplete: {sharedBudgetError}</Banner>}
       {/* Top Stats */}
       <div className="spending-stats">

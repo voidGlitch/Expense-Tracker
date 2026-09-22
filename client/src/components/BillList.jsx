@@ -172,9 +172,9 @@ export function BillList({ bills, currency, money, onConfirm, onUnconfirm, readO
                           size="sm"
                           icon={Pencil}
                           onClick={() => setConfirming(bill)}
-                          aria-label="Update amount"
-                          className="size-9 p-0"
-                        />
+                          aria-label={`Edit ${bill.name} amount`}
+                          className="h-9 px-2"
+                        >Edit</Button>
                         <Button
                           variant="ghost"
                           size="sm"
