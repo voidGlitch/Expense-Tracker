@@ -15,8 +15,17 @@ const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100;
 const num = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
 const clamp01 = (value) => Math.min(1, Math.max(0, value));
 
-const expenses = (month) => [...(month.transactions || []), ...(month.sharedTransactions || [])]
-  .filter((t) => t.type === TRANSACTION_TYPE.EXPENSE);
+const expenses = (month) => {
+  const seen = new Set();
+  return [...(month.transactions || []), ...(month.sharedTransactions || [])]
+    .filter((t) => t.type === TRANSACTION_TYPE.EXPENSE)
+    .filter((t) => {
+      const key = t.sourceId ? `source:${t.sourceId}` : `id:${t.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+};
 
 /**
  * One-off income for the month: the stored `extraIncome` field (SRS §6) plus any

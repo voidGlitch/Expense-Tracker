@@ -190,6 +190,16 @@ export function sharedRoutes() {
         }
       }
 
+      const uniqueTransactions = [];
+      const seenTransactionSources = new Set();
+      for (const transaction of transactions) {
+        const key = `${transaction.sourceType}:${transaction.sourceId}`;
+        if (seenTransactionSources.has(key)) continue;
+        seenTransactionSources.add(key);
+        uniqueTransactions.push(transaction);
+      }
+      transactions.length = 0;
+      transactions.push(...uniqueTransactions);
       transactions.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.sourceId).localeCompare(String(a.sourceId)));
       res.json({
         totals: byCurrency,

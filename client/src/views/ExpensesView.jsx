@@ -72,7 +72,15 @@ export default function ExpensesView() {
     discretionarySpent: summary.discretionarySpent - repaymentTotals.received + repaymentTotals.sent,
     remaining: summary.remaining + repaymentTotals.received - repaymentTotals.sent,
   }) : summary, [summary, repaymentTotals]);
-  const visibleTransactions = useMemo(() => [...transactions, ...sharedPersonalEntries], [transactions, sharedPersonalEntries]);
+  const visibleTransactions = useMemo(() => {
+    const seen = new Set();
+    return [...transactions, ...sharedPersonalEntries].filter((row) => {
+      const key = row.sourceId ? `source:${row.sourceId}` : `id:${row.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [transactions, sharedPersonalEntries]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();

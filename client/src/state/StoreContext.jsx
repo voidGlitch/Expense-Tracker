@@ -63,7 +63,9 @@ export function StoreProvider({ children }) {
           const seen = new Set();
           const transactions = result.transactions || [];
           const entries = transactions.filter((row) => row.sourceType === 'shared_expense' && (row.amountPaidByCurrentUser || row.personalShare) && !seen.has(row.sourceId) && seen.add(row.sourceId)).map((row) => ({ id: `shared:${row.sourceId}:${userId}`, sourceId: row.sourceId, shared: true, type: 'expense', amount: row.amountPaidByCurrentUser || row.personalShare, date: row.date, currency: row.currency, category: `${row.description || row.category || 'Shared expense'} (shared expense)`, note: row.description }));
-          entries.push(...transactions.filter((row) => ['settlement_received', 'settlement_sent'].includes(row.sourceType)).map((row) => ({ id: `shared:${row.sourceId}:${userId}`, sourceId: row.sourceId, shared: true, type: row.sourceType === 'settlement_received' ? 'income' : 'expense', amount: row.amount, date: row.date, currency: row.currency, category: 'Settlement', note: row.description })));
+          // Settlement credits/debits are applied by ExpensesView's budget
+          // summary and breakdown. Keep them out of the projected month here
+          // so the same payment is never counted twice.
           setSharedEntries(entries);
           setSharedBudgetError('');
         }
