@@ -9,10 +9,13 @@ export function sharedExpenseEntries(shared, monthId) {
       id: txn.id,
       date: txn.date,
       type: 'expense',
-      amount: txn.personalShare,
+      // Spending shows the cash that left your account. If you did not pay,
+      // fall back to your owed share so the entry still represents your debt.
+      amount: Number(txn.amountPaidByCurrentUser) > 0 ? txn.amountPaidByCurrentUser : txn.personalShare,
       category: txn.category || 'Shared',
       note: txn.description,
       shared: true,
+      cashPaid: Number(txn.amountPaidByCurrentUser) > 0,
       sharedDetail: txn,
     }));
 }

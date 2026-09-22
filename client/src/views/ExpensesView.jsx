@@ -281,7 +281,7 @@ export default function ExpensesView() {
                           </div>
                         )}
                       </div>
-                      {txn.shared && txn.sharedDetail && <p className="spending-entry-origin mt-1 text-xs text-slate-500">{txn.repayment ? "Repayment · excluded from income; affects Discretionary spent" : `Personal share from ${txn.sharedDetail.contextTitle || "shared ledger"}`}</p>}
+                      {txn.shared && txn.sharedDetail && <p className="spending-entry-origin mt-1 text-xs text-slate-500">{txn.repayment ? "Repayment · excluded from income; affects Discretionary spent" : txn.cashPaid ? `Cash paid into ${txn.sharedDetail.contextTitle || "shared ledger"}; receivable tracked separately` : `Personal share from ${txn.sharedDetail.contextTitle || "shared ledger"}`}</p>}
                     </div>
                   ))}
                 </div>

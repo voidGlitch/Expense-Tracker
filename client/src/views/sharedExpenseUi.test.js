@@ -26,6 +26,11 @@ describe('shared expense UI rules', () => {
       shared: true,
     });
   });
+
+  it('shows the full cash paid when the user fronts a shared expense', () => {
+    const [entry] = sharedExpenseEntries({ transactions: [{ id: 'fronted', sourceType: 'shared_expense', date: '2026-09-17', personalShare: 250, amountPaidByCurrentUser: 500, category: 'Food', description: 'Party' }] }, '2026-09');
+    expect(entry).toMatchObject({ amount: 500, cashPaid: true });
+  });
 });
 
 it('shows partial repayments with correct signs, filters months and avoids duplicate batch credits', () => {
