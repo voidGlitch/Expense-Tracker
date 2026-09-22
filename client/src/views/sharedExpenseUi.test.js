@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sharedExpenseEntries, shouldShowSettleUp } from './sharedExpenseUi.js';
+import { sharedExpenseEntries, sharedRepaymentEntries, shouldShowSettleUp } from './sharedExpenseUi.js';
 
 describe('shared expense UI rules', () => {
   it('hides Settle Up for empty or zero debts and shows it only for current-user payable rows', () => {
@@ -26,4 +26,12 @@ describe('shared expense UI rules', () => {
       shared: true,
     });
   });
+});
+
+it('shows partial repayments with correct signs, filters months and avoids duplicate batch credits', () => {
+  const received = { id: 'r1', sourceId: 'batch1', sourceType: 'settlement_received', date: '2026-09-17', amount: 50 };
+  const entries = sharedRepaymentEntries({ transactions: [received, { ...received, id: 'r2' }, { ...received, id: 'sent', sourceId: 'sent', sourceType: 'settlement_sent', amount: 700 }, { ...received, id: 'old', date: '2026-08-17' }, { ...received, id: 'zero', amount: 0 }] }, '2026-09');
+  expect(entries).toHaveLength(2);
+  expect(entries[0]).toMatchObject({ type: 'repayment', credit: true, amount: 50 });
+  expect(entries[1]).toMatchObject({ type: 'repayment', credit: false, amount: 700 });
 });

@@ -284,7 +284,7 @@ function Sidebar({ collapsed, setCollapsed, route, navigate }) {
 function MobileNav({ route, navigate }) {
   const mobileNav = NAV.filter((item) => ['dashboard', 'expenses', 'splitwise', 'history', 'settings'].includes(item.id));
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200/80 bg-white/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)] dark:border-slate-800 dark:bg-slate-950/95 overflow-x-auto">
+    <nav className="fixed inset-x-0 bottom-0 z-50 lg:hidden border-t border-slate-200/80 bg-white/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)] dark:border-slate-800 dark:bg-slate-950/95 overflow-x-auto">
       <div className="flex items-end justify-between px-2 pt-2 min-w-full">
         {mobileNav.map((item) => {
           const active = route === item.id;
@@ -350,9 +350,9 @@ export default function Shell() {
         <main className="min-w-0 flex-1 pb-24 lg:pb-8">
           {/* Header */}
           <header className="sticky top-0 z-40 border-b border-slate-200/50 bg-white/80 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/80">
-            <div className="flex items-center gap-3 px-4 py-3 lg:px-6">
+            <div className="flex flex-wrap items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4 lg:px-6">
               {/* Mobile Logo */}
-              <div className="flex items-center gap-2 lg:hidden">
+              <div className="hidden items-center gap-2 sm:flex lg:hidden">
                 <div className="flex items-center justify-center size-9 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/25">
                   <PiggyBank size={18} aria-hidden="true" />
                 </div>
