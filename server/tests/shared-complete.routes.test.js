@@ -19,19 +19,57 @@ async function fixture(provided) {
 }
 
 describe('shared expense acceptance and security', () => {
-  it('preserves the 7000 → 1750 → 5250 budget through creditor-recorded partial and full repayment', async () => {
+  it('projects payer cash and repayment credits into the monthly wallet', async () => {
     const f = await fixture();
     await patchStore(f.a.agent, (store) => addTransaction(applySetup(store, { monthId: '2026-09', income: 7000, billDefinitions: [] }), '2026-09', { amount: 1000, category: 'Groceries', date: '2026-09-01' }).store);
     expect((await f.expense()).status).toBe(201);
-    for (const amount of [0, 50, 700]) {
+    for (const [amount, spending, remaining] of [[0, 2500, 4500], [50, 2450, 4550], [700, 1750, 5250]]) {
       if (amount) expect((await f.payment({ amount })).status).toBe(201);
       const summary = await f.a.agent.get('/api/shared/summary?monthId=2026-09');
       expect(summary.status).toBe(200);
-      expect(summary.body.monthly).toMatchObject({ currentSpending: 1750, remaining: 5250 });
+      expect(summary.body.monthly).toMatchObject({ currentSpending: spending, remaining });
       expect(summary.body.totals.INR.personalExpense).toBe(750);
+      if (amount === 700) expect(summary.body.openPositions).toEqual([]);
+      else expect(summary.body.openPositions).toEqual([expect.objectContaining({ personName: 'Bob', currency: 'INR', direction: 'receivable', amount: amount === 50 ? 700 : 750 })]);
     }
     expect((await f.b.agent.get(`/api/friendships/${f.friendship.id}/balance`)).body.balances.INR.amount).toBe(0);
     expect((await f.a.agent.get('/api/budget')).body.store.months[0].transactions).toHaveLength(1);
+  });
+
+  it('gives the payer a credit and the settling friend a debit for one shared expense', async () => {
+    const f = await fixture();
+    await patchStore(f.a.agent, (store) => applySetup(store, { monthId: '2026-09', income: 5000, billDefinitions: [] }));
+    await patchStore(f.b.agent, (store) => applySetup(store, { monthId: '2026-09', income: 5000, billDefinitions: [] }));
+    expect((await f.expense({ description: 'Party', amount: 1000, date: '2026-09-22' })).status).toBe(201);
+    expect((await f.a.agent.get('/api/shared/summary?monthId=2026-09')).body.monthly.currentSpending).toBe(1000);
+    expect((await f.b.agent.get('/api/shared/summary?monthId=2026-09')).body.monthly.currentSpending).toBe(0);
+    expect((await f.payment({ amount: 500, date: '2026-09-24' }, f.b.agent)).status).toBe(201);
+    const payer = await f.a.agent.get('/api/shared/summary?monthId=2026-09');
+    const friend = await f.b.agent.get('/api/shared/summary?monthId=2026-09');
+    expect(payer.body.monthly.currentSpending).toBe(500);
+    expect(friend.body.monthly.currentSpending).toBe(500);
+    expect(friend.body.openPositions).toEqual([]);
+    expect(payer.body.openPositions).toEqual([]);
+    expect(payer.body.transactions).toEqual(expect.arrayContaining([expect.objectContaining({ sourceType: 'settlement_received', amount: 500, description: 'Party' })]));
+    expect(friend.body.transactions).toEqual(expect.arrayContaining([expect.objectContaining({ sourceType: 'settlement_sent', amount: 500, description: 'Party' })]));
+  });
+
+  it('keeps historical settlements attached to their own expense titles', async () => {
+    const f = await fixture();
+    await patchStore(f.a.agent, (store) => applySetup(store, { monthId: '2026-09', income: 5000, billDefinitions: [] }));
+    await patchStore(f.b.agent, (store) => applySetup(store, { monthId: '2026-09', income: 5000, billDefinitions: [] }));
+    expect((await f.expense({ description: 'Older dinner', amount: 500, date: '2026-09-01' })).status).toBe(201);
+    expect((await f.payment({ amount: 250, date: '2026-09-02' }, f.b.agent)).status).toBe(201);
+    expect((await f.expense({ description: 'Newest party', amount: 1000, date: '2026-09-03' })).status).toBe(201);
+    expect((await f.payment({ amount: 500, date: '2026-09-04' }, f.b.agent)).status).toBe(201);
+
+    const friend = await f.b.agent.get('/api/shared/summary?monthId=2026-09');
+    const sent = friend.body.transactions.filter((row) => row.sourceType === 'settlement_sent');
+    expect(sent.map((row) => [row.amount, row.description])).toEqual(expect.arrayContaining([
+      [250, 'Older dinner'],
+      [500, 'Newest party'],
+    ]));
+    expect(friend.body.monthly.currentSpending).toBe(750);
   });
 
   it('records multi-payer unequal expenses, comments and receipts while blocking outsiders', async () => {

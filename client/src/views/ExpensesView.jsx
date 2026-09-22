@@ -23,6 +23,7 @@ import {
 import { sharedExpenseEntries, sharedRepaymentEntries } from './sharedExpenseUi.js';
 import { BudgetBreakdown } from '../components/BudgetBreakdown.jsx';
 import './spending.css';
+import SharedPosition from './SharedPosition.jsx';
 
 export default function ExpensesView() {
   const { month, summary, money, apply, activeMonthId, currency, sharedBudgetError } = useStore();
@@ -30,15 +31,18 @@ export default function ExpensesView() {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all'); // 'all', 'expense', 'income'
+  const [scopeFilter, setScopeFilter] = useState('all');
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState(null);
   const [shared, setShared] = useState(null);
   const [sharedError, setSharedError] = useState('');
+  const [sharedLoading, setSharedLoading] = useState(false);
 
   const sharedRequest = useRef(0);
   const loadShared = useCallback(async () => {
     const request = ++sharedRequest.current;
+    setSharedLoading(true);
     try {
       const result = await api.getSharedSummary(activeMonthId);
       if (request !== sharedRequest.current) return;
@@ -48,6 +52,8 @@ export default function ExpensesView() {
       if (request !== sharedRequest.current) return;
       setShared(null);
       setSharedError(cause.message);
+    } finally {
+      if (request === sharedRequest.current) setSharedLoading(false);
     }
   }, [activeMonthId]);
 
@@ -72,8 +78,10 @@ export default function ExpensesView() {
   }, [shared, activeMonthId]);
   const budgetSummary = useMemo(() => summary ? ({
     ...summary,
-    discretionarySpent: summary.discretionarySpent - repaymentTotals.received + repaymentTotals.sent,
-    remaining: summary.remaining + repaymentTotals.received - repaymentTotals.sent,
+    // Sent settlements are already projected into the store as expenses.
+    // Received settlements are display-only credits and are applied here.
+    discretionarySpent: summary.discretionarySpent - repaymentTotals.received,
+    remaining: summary.remaining + repaymentTotals.received,
   }) : summary, [summary, repaymentTotals]);
   const visibleTransactions = useMemo(() => {
     const seen = new Set();
@@ -90,10 +98,12 @@ export default function ExpensesView() {
     return visibleTransactions.filter((txn) => {
       if (category !== 'all' && txn.category !== category) return false;
       if (typeFilter !== 'all' && txn.type !== typeFilter) return false;
+      if (scopeFilter === 'shared' && !txn.shared) return false;
+      if (scopeFilter === 'personal' && txn.shared) return false;
       if (!needle) return true;
       return `${txn.note || ''} ${txn.category || ''} ${txn.date || ''}`.toLowerCase().includes(needle);
     });
-  }, [visibleTransactions, query, category, typeFilter]);
+  }, [visibleTransactions, query, category, typeFilter, scopeFilter]);
 
   const groups = useMemo(() => {
     const byDate = new Map();
@@ -121,24 +131,11 @@ export default function ExpensesView() {
   // Shared cash transfers belong to the separate ledger, not daily allowance.
   const currentSpent = summary.loggedExpenses;
   const currentRemaining = budgetSummary.remaining;
-  const sharedLogged = (shared?.transactions || []).filter((txn) => txn.sourceType === 'shared_expense' && Number(txn.amountPaidByCurrentUser) > 0 && String(txn.date || '').startsWith(activeMonthId || '')).reduce((sum, txn) => sum + Number(txn.amountPaidByCurrentUser || 0), 0);
-  const sharedRows = shared?.transactions || [];
-  const settledExpenseIds = new Set();
-  sharedRows.filter((txn) => txn.sourceType === 'settlement_received' || txn.sourceType === 'settlement_sent').forEach((payment) => {
-    let remaining = Number(payment.amount || 0);
-    sharedRows.filter((txn) => txn.sourceType === 'shared_expense' && txn.contextType === payment.contextType && txn.contextId === payment.contextId && !settledExpenseIds.has(txn.sourceId)).forEach((expense) => {
-      const outstanding = Math.max(Number(expense.receivable || 0), Number(expense.payable || 0));
-      if (outstanding > 0 && remaining >= outstanding - 0.005) { settledExpenseIds.add(expense.sourceId); remaining -= outstanding; }
-    });
-  });
-  const openContextBalances = sharedRows.reduce((map, txn) => {
-    const key = `${txn.contextType}:${txn.contextId}`;
-    if (txn.sourceType === 'shared_expense') map[key] = (map[key] || 0) + Number(txn.netBalance || 0);
-    if (txn.sourceType === 'settlement_received') map[key] = (map[key] || 0) - Number(txn.amount || 0);
-    if (txn.sourceType === 'settlement_sent') map[key] = (map[key] || 0) + Number(txn.amount || 0);
-    return map;
-  }, {});
-  const sharedExpenseTransactions = sharedRows.filter((txn) => txn.sourceType === 'shared_expense' && !settledExpenseIds.has(txn.sourceId) && Math.abs(openContextBalances[`${txn.contextType}:${txn.contextId}`] || 0) > 0.005);
+  const sharedLogged = (shared?.transactions || []).filter((txn) => String(txn.date || '').startsWith(activeMonthId || '')).reduce((sum, txn) => {
+    if (txn.sourceType === 'shared_expense' && Number(txn.amountPaidByCurrentUser) > 0) return sum + Number(txn.amountPaidByCurrentUser || 0);
+    if (txn.sourceType === 'settlement_sent') return sum + Number(txn.amount || 0);
+    return sum;
+  }, 0);
 
   return (
     <div className="spending-view">
@@ -149,8 +146,8 @@ export default function ExpensesView() {
         <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-5 shadow-sm">
           <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Pool Spend</span>
           <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100 tnum">{money(budgetSummary.discretionarySpent)}</p>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Day-to-day spending</p>
-          <details className="mt-2 text-xs"><summary className="cursor-pointer font-semibold text-indigo-600">View breakdown</summary><div className="mt-2 space-y-1">{budgetBreakdown(month).spending.map((row) => <div key={row.label} className="flex justify-between gap-3"><span>{row.label}</span><span>{money(row.amount)}</span></div>)}</div></details>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Day-to-day spending after repayment credits</p>
+          <details className="mt-2 text-xs"><summary className="cursor-pointer font-semibold text-indigo-600">View breakdown</summary><div className="mt-2 space-y-1">{[...budgetBreakdown(month).spending, ...(repaymentTotals.received ? [{ label: "Repayments received (credit)", amount: -repaymentTotals.received }] : [])].map((row) => <div key={row.label} className="flex justify-between gap-3"><span>{row.label}</span><span>{money(row.amount)}</span></div>)}</div></details>
         </div>
 
         <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-5 shadow-sm">
@@ -169,6 +166,9 @@ export default function ExpensesView() {
         </div>
       </div>
 
+      <SharedPosition shared={shared} error={sharedError} loading={sharedLoading} refresh={loadShared} />
+      <div className="spending-breakdown"><BudgetBreakdown month={month} summary={budgetSummary} money={money} repaymentCredits={repaymentTotals.received} /></div>
+
       {/* Main Content Card */}
       <div className="spending-entries rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-hidden">
         <div className="spending-entries-heading flex flex-wrap items-center justify-between gap-3 px-4 py-4 border-b border-slate-200/80 dark:border-slate-800">
@@ -180,11 +180,7 @@ export default function ExpensesView() {
               {isClosed ? 'This month is closed — entries are view-only.' : `${filtered.length} ${filtered.length === 1 ? 'entry' : 'entries'} · newest first`}
             </p>
           </div>
-          {!isClosed && (
-            <Button variant="primary" size="sm" icon={Plus} onClick={() => setAdding(true)}>
-              Add Expense
-            </Button>
-          )}
+          <span className="entries-hint">Debits − · Credits +</span>
         </div>
 
         {/* Filter Toolbar */}
@@ -200,7 +196,18 @@ export default function ExpensesView() {
             />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="spending-filter-selects">
+            <Select
+              value={scopeFilter}
+              onChange={(event) => setScopeFilter(event.target.value)}
+              className="h-10 w-auto bg-white dark:bg-slate-950"
+              aria-label="Filter personal or shared expenses"
+            >
+              <option value="all">Personal + Shared</option>
+              <option value="personal">Personal Only</option>
+              <option value="shared">Shared Only</option>
+            </Select>
+
             <Select
               value={category}
               onChange={(event) => setCategory(event.target.value)}
@@ -229,7 +236,7 @@ export default function ExpensesView() {
         {groups.length === 0 ? (
           <div className="p-8">
             <EmptyState icon={Search} title="No entries found">
-              {query || category !== 'all' || typeFilter !== 'all'
+              {query || category !== 'all' || typeFilter !== 'all' || scopeFilter !== 'all'
                 ? 'Try adjusting your search filters.'
                 : 'No transactions recorded for this month yet.'}
             </EmptyState>
@@ -288,7 +295,7 @@ export default function ExpensesView() {
                             ? 'text-emerald-600 dark:text-emerald-400'
                             : 'text-slate-900 dark:text-slate-100'
                         }`}>
-                          {(txn.type === 'income' || txn.credit) ? '+' : '-'}{txn.shared ? formatMoney(txn.amount, txn.sharedDetail.currency || currency) : money(txn.amount)}
+                          {(txn.type === 'income' || txn.credit) ? '+' : '-'}{txn.shared ? formatMoney(txn.amount, txn.sharedDetail?.currency || txn.currency || currency) : money(txn.amount)}
                         </span>
 
                         {!isClosed && !txn.shared && (
@@ -312,7 +319,7 @@ export default function ExpensesView() {
                           </div>
                         )}
                       </div>
-                      {txn.shared && txn.sharedDetail && <p className="spending-entry-origin mt-1 text-xs text-slate-500">{txn.repayment ? "Repayment · excluded from income; affects Discretionary spent" : txn.cashPaid ? `Cash paid into ${txn.sharedDetail.contextTitle || "shared ledger"}; receivable tracked separately` : `Personal share from ${txn.sharedDetail.contextTitle || "shared ledger"}`}</p>}
+                      {txn.shared && txn.sharedDetail && <p className="spending-entry-origin mt-1 text-xs text-slate-500">{txn.repayment ? "Money received back · reduces spending, not income" : txn.cashPaid ? `Paid by you · repayments appear separately as credits` : `Payment made · counted once as spending`}</p>}
                     </div>
                   ))}
                 </div>
@@ -321,22 +328,6 @@ export default function ExpensesView() {
           </div>
         )}
       </div>
-
-      <div className="spending-breakdown"><BudgetBreakdown month={month} summary={budgetSummary} money={money} repaymentCredits={repaymentTotals.received} repaymentDebits={repaymentTotals.sent} /></div>
-
-      {/* Derived from the authoritative shared-expense ledger. These values are
-          deliberately separate from normal personal transactions: a bill you
-          fronted is not all personal spending, and a receivable is not income. */}
-      <section className="spending-shared rounded-2xl border border-teal-100 bg-teal-50/60 p-4 dark:border-teal-900/70 dark:bg-teal-950/20 sm:p-5">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <h2 className="font-bold text-slate-900 dark:text-slate-100">Shared expense position</h2>
-            <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">Your share is included in spending above. Received repayments show as credits; sent repayments show as debits.</p>
-          </div>
-          <Button variant="ghost" size="sm" onClick={loadShared}>Refresh</Button>
-        </div>
-        {sharedExpenseTransactions.length > 0 && <div className="mt-4 divide-y divide-teal-100 rounded-xl bg-white dark:divide-slate-800 dark:bg-slate-900">{sharedExpenseTransactions.slice(0, 4).map((txn) => { const balance = openContextBalances[`${txn.contextType}:${txn.contextId}`] || 0; return <div key={txn.id} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm"><div className="min-w-0"><p className="truncate font-semibold text-slate-900 dark:text-slate-100">{txn.description}</p><p className="text-xs text-slate-500">{txn.category} · personal share</p></div><div className="shrink-0 text-right"><p className={`font-bold ${balance > 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{balance > 0 ? 'Receivable' : 'Payable'} {formatMoney(Math.abs(balance), txn.currency)}</p></div></div>; })}</div>}
-      </section>
 
       {/* Edit Modal */}
       {editing && (

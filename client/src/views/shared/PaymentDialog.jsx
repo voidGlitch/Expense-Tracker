@@ -44,8 +44,8 @@ export default function PaymentDialog({ context, friend, contexts, me, initial, 
       // open while another device records a payment, so its original revision
       // is not safe to submit.
       const fresh = await Promise.resolve(typeof api.getSharedOverview === 'function' ? api.getSharedOverview() : null).catch(() => null);
-      const freshFriend = fresh.friends?.find((row) => row.id === friend?.id);
-      const freshContext = fresh.contexts?.find((row) => row.id === selectedContext?.id);
+      const freshFriend = fresh?.friends?.find((row) => row.id === friend?.id);
+      const freshContext = fresh?.contexts?.find((row) => row.id === selectedContext?.id);
       if (isAll) await saveShared(me.id, 'settleAll', [{ friendId: friend.id, currency, amount: Number(amount), date, method, note, expectedRevision: freshFriend?.revision ?? friend.revision, confirmOffset: confirmed, idempotencyKey: key }]);
       else {
         const payload = { fromUserId: from, toUserId: to, amount: Number(amount), currency, date, method, note, contextType: selectedContext.type, contextId: selectedContext.id, confirmUnusualPayment: confirmed, idempotencyKey: key };
@@ -58,7 +58,7 @@ export default function PaymentDialog({ context, friend, contexts, me, initial, 
   };
   const scopes = friend?.scopes?.filter((s) => s.currency === currency) || [];
   const canSave = isAll ? scopes.length > 0 && (minor(total) !== 0 || confirmed) : from && to && from !== to && Number(amount) > 0 && (!unusual || confirmed);
-  return <Modal open onClose={close} title={initial ? 'Edit payment' : 'Record payment'} subtitle="Record money that actually changed hands. This never changes personal spending or income." footer={<><Button variant="ghost" onClick={close}>Cancel</Button><Button type="submit" form="shared-payment" busy={busy} disabled={!canSave}>Record payment</Button></>}>
+  return <Modal open onClose={close} title={initial ? 'Edit payment' : 'Record payment'} subtitle="Record money that actually changed hands. Sent payments become spending; received payments appear as credits." footer={<><Button variant="ghost" onClick={close}>Cancel</Button><Button type="submit" form="shared-payment" busy={busy} disabled={!canSave}>Record payment</Button></>}>
     <form id="shared-payment" className="shared-form" onSubmit={save}>
       <Field label="Payment scope"><select disabled={Boolean(initial)} value={scopeId} onChange={(e) => chooseScope(e.target.value)}>{friend && <option value="all">Settle all with {friend.user.name}</option>}{contexts.filter((c) => !friend || c.memberIds.includes(friend.id)).map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}</select></Field>
       <Field label="Currency"><select value={currency} onChange={(e) => chooseScope(scopeId, e.target.value)}>{Object.keys(CURRENCIES).map((c) => <option key={c}>{c}</option>)}</select></Field>

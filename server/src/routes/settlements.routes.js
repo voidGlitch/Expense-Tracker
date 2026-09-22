@@ -23,9 +23,7 @@ async function validatePayment(req, data, excludingId) {
   const context = await ledgerContext(req.repo, data.contextType, data.contextId, req.user.id);
   involved(data, req.user.id);
   const rows = await ledgerRows(req.repo, context);
-  // New payments are validated against the rows read immediately above. A
-  // client revision can be stale while the balance is still valid, so it must
-  // not block recording a real payment with a 409 conflict.
+  if (!excludingId && req.body.expectedLedgerRevision != null) checkRevision(req.body.expectedLedgerRevision, ledgerRevision(rows));
   const expenses = rows.expenses.filter((row) => row.currency === data.currency);
   const settlements = rows.settlements.filter((row) => row.currency === data.currency && row.id !== excludingId);
   const graph = context.type === 'group' && context.entity.settings?.simplifyDebts !== false ? simplifyDebts(netBalancesObject(expenses, settlements)) : pairwiseBalances(expenses, settlements);

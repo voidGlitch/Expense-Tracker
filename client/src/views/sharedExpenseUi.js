@@ -31,11 +31,15 @@ export function sharedRepaymentEntries(shared, monthId, userId) {
     return true;
   }).map((txn) => {
     const received = txn.fromUserId && txn.toUserId ? txn.toUserId === userId : txn.sourceType === 'settlement_received';
-    if (received) return {
+    if (received) {
+      const description = String(txn.description || '').trim();
+      const generic = !description || ['settlement received', 'shared expense settlement'].includes(description.toLowerCase());
+      return {
       id: txn.id, date: txn.date, type: 'repayment', amount: txn.amount,
-      category: 'Repayment', note: `Payment received for ${txn.description || 'shared expense'}`,
+      category: 'Repayment', note: generic ? 'Repayment received' : `Payment received for ${description}`,
       credit: true, repayment: true, shared: true, sharedDetail: txn,
-    };
+      };
+    }
     return {
       id: txn.id, date: txn.date, type: 'expense', amount: txn.amount,
       category: txn.category || 'Shared', note: txn.description || 'Shared expense settlement',

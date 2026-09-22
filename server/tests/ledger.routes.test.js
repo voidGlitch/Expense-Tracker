@@ -23,7 +23,11 @@ describe('ledger API', () => {
     expect(settled.status).toBe(201);
     const summary = await a.agent.get('/api/shared/summary?monthId=2026-09');
     expect(summary.body.monthly).toMatchObject({ normalSpending: 13214.69, sharedCashImpact: 10012.5, currentSpending: 23227.19, budgetPool: 12998, remaining: -10229.19 });
-    expect(summary.body.monthly.budgetEntries).toHaveLength(1);
+    expect(summary.body.monthly.budgetEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceType: 'shared_expense', amount: 20025 }),
+      expect.objectContaining({ sourceType: 'settlement_received', amount: -10012.5 }),
+    ]));
+    expect(summary.body.monthly.budgetEntries).toHaveLength(2);
   });
   it('implements the 1,000 → 400 → 600 partial-settlement example without double counting', async () => {
     const { app } = await makeApp(); const { a, b, friendship } = await setup(app);

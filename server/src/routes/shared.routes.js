@@ -53,6 +53,55 @@ function effectForExpense(expense, userId) {
   };
 }
 
+/**
+ * Match repayments to expense balances in chronological order. A payment can
+ * close only the still-unallocated balance for its direction. This prevents
+ * historical settlements from inheriting the title of a newly added expense
+ * merely because their amounts happen to fit it.
+ */
+function settlementExpenseMap(context, userId) {
+  const expenses = context.expenses
+    .map((expense) => {
+      const effect = effectForExpense(expense, userId);
+      return { expense, effect, remaining: Math.abs(effect.netBalance) };
+    })
+    .filter((row) => row.remaining > 0.005)
+    .sort((a, b) => String(a.expense.date || '').localeCompare(String(b.expense.date || ''))
+      || String(a.expense.createdAt || '').localeCompare(String(b.expense.createdAt || ''))
+      || String(a.expense.id || '').localeCompare(String(b.expense.id || '')));
+  const payments = [];
+  const seen = new Set();
+  for (const leg of context.settlements) {
+    const key = leg.batchId || leg.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    payments.push(leg.batchId
+      ? { ...leg, id: leg.batchId, amount: leg.cashAmount, fromUserId: leg.cashFromUserId, toUserId: leg.cashToUserId }
+      : leg);
+  }
+  payments.sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))
+    || String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
+    || String(a.id || '').localeCompare(String(b.id || '')));
+
+  const result = new Map();
+  for (const payment of payments) {
+    const direction = payment.fromUserId === userId ? -1 : payment.toUserId === userId ? 1 : 0;
+    if (!direction) continue;
+    let remaining = Number(payment.amount || 0);
+    const matched = [];
+    for (const row of expenses) {
+      if (remaining <= 0.005) break;
+      if (Math.sign(row.effect.netBalance) !== direction || row.remaining <= 0.005) continue;
+      const allocated = Math.min(row.remaining, remaining);
+      row.remaining = round2(row.remaining - allocated);
+      remaining = round2(remaining - allocated);
+      if (allocated > 0.005) matched.push(row.expense);
+    }
+    if (matched.length === 1) result.set(payment.id, matched[0]);
+  }
+  return result;
+}
+
 export function sharedRoutes() {
   const router = Router();
   router.get('/overview', async (req, res, next) => {
@@ -80,6 +129,7 @@ export function sharedRoutes() {
 
       const byCurrency = {};
       const transactions = [];
+      const openPositions = [];
       const cashPaymentsSeen = new Set();
       const ensure = (currency) => {
         const key = currency || 'INR';
@@ -88,6 +138,7 @@ export function sharedRoutes() {
       };
 
       for (const context of loaded) {
+        const relatedExpenses = settlementExpenseMap(context, req.user.id);
         for (const expense of context.expenses) {
           const effect = effectForExpense(expense, req.user.id);
           // A member may view a group expense without participating in it. It
@@ -107,6 +158,16 @@ export function sharedRoutes() {
           const settlements = context.settlements.filter((row) => (row.currency || 'INR') === currency);
           for (const debt of context.simplify ? simplifyDebts(netBalancesObject(expenses, settlements)) : pairwiseBalances(expenses, settlements)) {
             const totals = ensure(currency);
+            if (debt.amount > 0 && (debt.to === req.user.id || debt.from === req.user.id)) {
+              const receivable = debt.to === req.user.id;
+              const otherId = receivable ? debt.from : debt.to;
+              openPositions.push({
+                id: `${context.type}:${context.id}:${currency}:${debt.from}:${debt.to}`,
+                contextType: context.type, contextId: context.id, contextTitle: context.title,
+                personId: otherId, personName: context.members.find((member) => member.id === otherId)?.name || 'Member',
+                currency, amount: round2(debt.amount), direction: receivable ? 'receivable' : 'payable',
+              });
+            }
             if (debt.to === req.user.id) totals.receivable = round2(totals.receivable + debt.amount);
             if (debt.from === req.user.id) totals.payable = round2(totals.payable + debt.amount);
           }
@@ -116,12 +177,7 @@ export function sharedRoutes() {
           if (cashPaymentsSeen.has(leg.batchId || leg.id)) continue;
           cashPaymentsSeen.add(leg.batchId || leg.id);
           const settlement = leg.batchId ? { ...leg, id: leg.batchId, amount: leg.cashAmount, fromUserId: leg.cashFromUserId, toUserId: leg.cashToUserId } : leg;
-          const relatedExpense = context.expenses.find((expense) => {
-            const effect = effectForExpense(expense, req.user.id);
-            if (settlement.fromUserId === req.user.id) return effect.netBalance < 0 && Math.abs(effect.netBalance) >= Number(settlement.amount || 0) - 0.005;
-            if (settlement.toUserId === req.user.id) return effect.netBalance > 0 && effect.netBalance >= Number(settlement.amount || 0) - 0.005;
-            return false;
-          });
+          const relatedExpense = relatedExpenses.get(settlement.id);
           const totals = ensure(settlement.currency);
           if (settlement.fromUserId === req.user.id) {
             totals.settlementSent = round2(totals.settlementSent + settlement.amount);
@@ -178,6 +234,18 @@ export function sharedRoutes() {
           const sharedCashImpact = monthlyByCurrency[primaryCurrency]?.currentCashImpact || 0;
           const normalSpending = loggedExpensesTotal(month);
           const budgetEntries = sharedBudgetEntries(loaded.flatMap((context) => context.expenses), req.user.id, monthId, primaryCurrency);
+          budgetEntries.push(...transactions.filter((row) => row.currency === primaryCurrency && String(row.date || '').startsWith(monthId) && ['settlement_sent', 'settlement_received'].includes(row.sourceType)).map((row) => ({
+            id: `shared:${row.sourceId}:${req.user.id}`,
+            sourceId: row.sourceId,
+            sourceType: row.sourceType,
+            shared: true,
+            date: row.date,
+            type: 'expense',
+            amount: row.sourceType === 'settlement_received' ? -Number(row.amount || 0) : Number(row.amount || 0),
+            category: row.sourceType === 'settlement_received' ? 'Repayment credit' : `${row.description || 'Shared expense'} (shared expense)`,
+            note: row.description,
+            currency: row.currency,
+          })));
           const projectedMonth = withSharedBudget(month, budgetEntries);
           const currentSpending = loggedExpensesTotal(projectedMonth);
           monthly = {
@@ -209,6 +277,7 @@ export function sharedRoutes() {
       transactions.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.sourceId).localeCompare(String(a.sourceId)));
       res.json({
         totals: byCurrency,
+        openPositions,
         transactions,
         monthly,
         generatedAt: new Date().toISOString(),

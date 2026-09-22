@@ -67,7 +67,11 @@ describe('Spending regressions', () => {
     fireEvent.change(screen.getByLabelText('Search entries'), { target: { value: 'missing' } });
     expect(screen.getByText('No entries found')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Search entries'), { target: { value: 'dinner' } });
-    expect(screen.getAllByText('Dinner split')).toHaveLength(2);
+    expect(screen.getAllByText('Dinner split')).toHaveLength(1);
+    fireEvent.change(screen.getByLabelText('Filter personal or shared expenses'), { target: { value: 'personal' } });
+    expect(screen.getByText('No entries found')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Filter personal or shared expenses'), { target: { value: 'shared' } });
+    expect(screen.getByText('Dinner split')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Filter by type'), { target: { value: 'income' } });
     expect(screen.getByText('No entries found')).toBeTruthy();
   });
@@ -98,7 +102,7 @@ describe('Spending regressions', () => {
     setMonth('2026-08');
     mocks.getSharedSummary.mockResolvedValue({ transactions: [], totals: {}, monthly: null });
     view.rerender(<ExpensesView />);
-    await screen.findByText('No shared expenses affect your Expense Manager yet.');
+    await screen.findByText('All settled up');
     await act(async () => resolveOld(response()));
     expect(screen.queryByText('Dinner split')).toBeNull();
     expect(screen.getByText('All Logged').nextElementSibling.textContent).toBe('money:0');
@@ -108,7 +112,7 @@ describe('Spending regressions', () => {
     mocks.getSharedSummary.mockRejectedValue(new Error('Network unavailable'));
     render(<ExpensesView />);
     await screen.findByText(/Unable to load shared expenses: Network unavailable/);
-    fireEvent.click(screen.getByRole('button', { name: 'Add Expense' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add expense' }));
     expect(await screen.findByRole('dialog', { name: 'Record Transaction' })).toBeTruthy();
   });
 
@@ -126,6 +130,17 @@ describe('Spending regressions', () => {
     render(<ExpensesView />);
     await screen.findByText('Shared expense');
     expect(screen.getByText('All Logged').nextElementSibling.textContent).toBe('money:0');
+  });
+
+  it('counts a sent settlement once in Pool Spend', async () => {
+    const payment = { id: 'settlement-sent:payment-1:me', sourceId: 'payment-1', sourceType: 'settlement_sent', fromUserId: 'me', toUserId: 'friend', date: '2026-09-17', amount: 500, currency: 'INR', description: 'Party', category: 'Food' };
+    setMonth('2026-09', [{ id: 'shared:payment-1:me', sourceId: 'payment-1', shared: true, type: 'expense', date: '2026-09-17', amount: 500, currency: 'INR', category: 'Party (shared expense)', note: 'Party' }]);
+    mocks.getSharedSummary.mockResolvedValue(response([payment]));
+    render(<ExpensesView />);
+    await screen.findByText('Party');
+    expect(screen.getByText('Pool Spend').nextElementSibling.textContent).toBe('money:500');
+    expect(screen.getByText('Remaining').nextElementSibling.textContent).toBe('money:500');
+    expect(screen.getByText(/Personal:/).textContent).toContain('Personal: money:0 · Shared: money:500');
   });
 });
 

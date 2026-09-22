@@ -8,7 +8,7 @@ describe('shared expense UI rules', () => {
     expect(shouldShowSettleUp([{ to: 'miku', amount: 700 }])).toBe(true);
   });
 
-  it('turns shared personal shares into normal Expense Manager entries for the selected month', () => {
+  it('does not show a non-payer shared expense until they settle it', () => {
     const entries = sharedExpenseEntries({
       transactions: [
         { id: 'shared-expense:1:me', sourceType: 'shared_expense', date: '2026-09-17', personalShare: 750, category: 'Entertainment', description: 'Movie', contextTitle: 'Miku' },
@@ -17,14 +17,7 @@ describe('shared expense UI rules', () => {
       ],
     }, '2026-09');
 
-    expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({
-      type: 'expense',
-      amount: 750,
-      category: 'Entertainment',
-      note: 'Movie',
-      shared: true,
-    });
+    expect(entries).toHaveLength(0);
   });
 
   it('shows the full cash paid when the user fronts a shared expense', () => {
@@ -34,9 +27,9 @@ describe('shared expense UI rules', () => {
 });
 
 it('shows partial repayments with correct signs, filters months and avoids duplicate batch credits', () => {
-  const received = { id: 'r1', sourceId: 'batch1', sourceType: 'settlement_received', date: '2026-09-17', amount: 50 };
-  const entries = sharedRepaymentEntries({ transactions: [received, { ...received, id: 'r2' }, { ...received, id: 'sent', sourceId: 'sent', sourceType: 'settlement_sent', amount: 700 }, { ...received, id: 'old', date: '2026-08-17' }, { ...received, id: 'zero', amount: 0 }] }, '2026-09');
+  const received = { id: 'r1', sourceId: 'batch1', sourceType: 'settlement_received', fromUserId: 'friend', toUserId: 'me', date: '2026-09-17', amount: 50, description: 'Party' };
+  const entries = sharedRepaymentEntries({ transactions: [received, { ...received, id: 'r2' }, { ...received, id: 'sent', sourceId: 'sent', sourceType: 'settlement_sent', fromUserId: 'me', toUserId: 'friend', amount: 700, description: 'Plan B', category: 'Food' }, { ...received, id: 'old', date: '2026-08-17' }, { ...received, id: 'zero', amount: 0 }] }, '2026-09', 'me');
   expect(entries).toHaveLength(2);
   expect(entries[0]).toMatchObject({ type: 'repayment', credit: true, amount: 50 });
-  expect(entries[1]).toMatchObject({ type: 'repayment', credit: false, amount: 700 });
+  expect(entries[1]).toMatchObject({ type: 'expense', credit: false, amount: 700, note: 'Plan B', category: 'Food' });
 });
