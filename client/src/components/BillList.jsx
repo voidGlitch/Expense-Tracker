@@ -93,7 +93,7 @@ function ConfirmBillModal({ bill, open, onClose, onSave, currency }) {
   );
 }
 
-export function BillList({ bills, currency, money, onConfirm, onUnconfirm, readOnly = false, emptyHint }) {
+export function BillList({ bills, currency, money, onConfirm, onDelete, readOnly = false, emptyHint }) {
   const [confirming, setConfirming] = useState(null);
   const ordered = [...bills].sort((a, b) => rank(a) - rank(b) || String(a.dueDate).localeCompare(String(b.dueDate)));
 
@@ -178,10 +178,10 @@ export function BillList({ bills, currency, money, onConfirm, onUnconfirm, readO
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => onUnconfirm(bill.id)}
+                          onClick={() => onDelete(bill.id)}
                           className="text-xs h-9"
                         >
-                          Undo
+                          Delete
                         </Button>
                       </>
                     )}

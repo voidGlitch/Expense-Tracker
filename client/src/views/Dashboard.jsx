@@ -13,7 +13,7 @@ import {
   confirmBillInStore,
   dailySpendSeries,
   formatMonthLabel,
-  unconfirmBillInStore,
+  deleteBillInStore,
   updateMonthPlan,
 } from '@expense/shared';
 import { useStore } from '../state/StoreContext.jsx';
@@ -297,7 +297,7 @@ export default function Dashboard({ onAddExpense, navigate }) {
               money={money}
               readOnly={isClosed}
               onConfirm={(instanceId, amount) => apply((store) => confirmBillInStore(store, activeMonthId, instanceId, amount))}
-              onUnconfirm={(instanceId) => apply((store) => unconfirmBillInStore(store, activeMonthId, instanceId))}
+              onDelete={(instanceId) => apply((store) => deleteBillInStore(store, activeMonthId, instanceId))}
               emptyHint={store.billDefinitions.length === 0 ? 'Add your bills once and they appear here every month.' : undefined}
             />
           </div>

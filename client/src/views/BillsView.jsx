@@ -223,11 +223,10 @@ export default function BillsView() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    icon={Trash2}
                     onClick={() => handleDelete(def.id)}
-                    aria-label="Delete definition"
-                    className="size-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
-                  />
+                    aria-label={`Delete ${def.name}`}
+                    className="h-9 px-2 text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                  >Delete</Button>
                 </div>
               </div>
             ))}

@@ -200,6 +200,12 @@ export function unconfirmBillInStore(store, monthId, instanceId) {
   return replaceMonth(store, unconfirmBill(month, instanceId, store.billDefinitions || [], monthsBefore(store, monthId)));
 }
 
+export function deleteBillInStore(store, monthId, instanceId) {
+  const month = getMonth(store, monthId);
+  if (!month) throw new Error(`Unknown month ${monthId}`);
+  return replaceMonth(store, { ...month, bills: (month.bills || []).filter((bill) => bill.id !== instanceId) });
+}
+
 export function updateSavings(store, patch = {}) {
   return {
     ...store,
