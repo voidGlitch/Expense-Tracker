@@ -116,14 +116,20 @@ export function sharedRoutes() {
           if (cashPaymentsSeen.has(leg.batchId || leg.id)) continue;
           cashPaymentsSeen.add(leg.batchId || leg.id);
           const settlement = leg.batchId ? { ...leg, id: leg.batchId, amount: leg.cashAmount, fromUserId: leg.cashFromUserId, toUserId: leg.cashToUserId } : leg;
+          const relatedExpense = context.expenses.find((expense) => {
+            const effect = effectForExpense(expense, req.user.id);
+            if (settlement.fromUserId === req.user.id) return effect.netBalance < 0 && Math.abs(effect.netBalance) >= Number(settlement.amount || 0) - 0.005;
+            if (settlement.toUserId === req.user.id) return effect.netBalance > 0 && effect.netBalance >= Number(settlement.amount || 0) - 0.005;
+            return false;
+          });
           const totals = ensure(settlement.currency);
           if (settlement.fromUserId === req.user.id) {
             totals.settlementSent = round2(totals.settlementSent + settlement.amount);
             transactions.push({
               id: `settlement-sent:${settlement.id}:${req.user.id}`,
               sourceType: 'settlement_sent', sourceId: settlement.id, contextType: context.type, contextId: context.id, contextTitle: context.title,
-              date: settlement.date, description: context.expenses[0]?.description || 'Shared expense settlement', category: 'Settlement', currency: settlement.currency,
-              amount: settlement.amount, personalShare: 0, receivable: 0, payable: -settlement.amount, netBalance: settlement.amount,
+              date: settlement.date, description: relatedExpense?.description || settlement.note || 'Shared expense settlement', category: relatedExpense?.category || 'Settlement', currency: settlement.currency,
+              fromUserId: settlement.fromUserId, toUserId: settlement.toUserId, amount: settlement.amount, personalShare: 0, receivable: 0, payable: -settlement.amount, netBalance: settlement.amount,
             });
           }
           if (settlement.toUserId === req.user.id) {
@@ -131,8 +137,8 @@ export function sharedRoutes() {
             transactions.push({
               id: `settlement-received:${settlement.id}:${req.user.id}`,
               sourceType: 'settlement_received', sourceId: settlement.id, contextType: context.type, contextId: context.id, contextTitle: context.title,
-              date: settlement.date, description: 'Settlement received', category: 'Settlement', currency: settlement.currency,
-              amount: settlement.amount, personalShare: 0, receivable: -settlement.amount, payable: 0, netBalance: -settlement.amount,
+              date: settlement.date, description: relatedExpense?.description || settlement.note || 'Settlement received', category: relatedExpense?.category || 'Settlement', currency: settlement.currency,
+              fromUserId: settlement.fromUserId, toUserId: settlement.toUserId, amount: settlement.amount, personalShare: 0, receivable: -settlement.amount, payable: 0, netBalance: -settlement.amount,
             });
           }
         }

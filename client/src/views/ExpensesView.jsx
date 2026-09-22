@@ -12,6 +12,7 @@ import {
   isDiscretionaryCategory,
 } from '@expense/shared';
 import { useStore } from '../state/StoreContext.jsx';
+import { useAuth } from '../state/AuthContext.jsx';
 import { api } from '../lib/api.js';
 import { formatMoney } from '../lib/money.js';
 import { ExpenseFormModal } from '../components/ExpenseForm.jsx';
@@ -25,6 +26,7 @@ import './spending.css';
 
 export default function ExpensesView() {
   const { month, summary, money, apply, activeMonthId, currency, sharedBudgetError } = useStore();
+  const { user } = useAuth();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all'); // 'all', 'expense', 'income'
@@ -61,7 +63,7 @@ export default function ExpensesView() {
   }, [loadShared]);
 
   const transactions = month?.transactions || [];
-  const sharedPersonalEntries = useMemo(() => [...sharedExpenseEntries(shared, activeMonthId), ...sharedRepaymentEntries(shared, activeMonthId)], [shared, activeMonthId]);
+  const sharedPersonalEntries = useMemo(() => [...sharedExpenseEntries(shared, activeMonthId), ...sharedRepaymentEntries(shared, activeMonthId, user?.id)], [shared, activeMonthId, user?.id]);
   const repaymentTotals = useMemo(() => {
     const repayments = (shared?.transactions || []).filter((txn) => String(txn.date || '').startsWith(activeMonthId || '') && Number(txn.amount) > 0);
     const received = repayments.filter((txn) => txn.sourceType === 'settlement_received').reduce((total, txn) => total + Number(txn.amount || 0), 0);
@@ -119,7 +121,24 @@ export default function ExpensesView() {
   // Shared cash transfers belong to the separate ledger, not daily allowance.
   const currentSpent = summary.loggedExpenses;
   const currentRemaining = budgetSummary.remaining;
-  const sharedLogged = (shared?.transactions || []).filter((txn) => txn.sourceType === 'shared_expense' && String(txn.date || '').startsWith(activeMonthId || '')).reduce((sum, txn) => sum + Number(txn.personalShare || 0), 0);
+  const sharedLogged = (shared?.transactions || []).filter((txn) => txn.sourceType === 'shared_expense' && Number(txn.amountPaidByCurrentUser) > 0 && String(txn.date || '').startsWith(activeMonthId || '')).reduce((sum, txn) => sum + Number(txn.amountPaidByCurrentUser || 0), 0);
+  const sharedRows = shared?.transactions || [];
+  const settledExpenseIds = new Set();
+  sharedRows.filter((txn) => txn.sourceType === 'settlement_received' || txn.sourceType === 'settlement_sent').forEach((payment) => {
+    let remaining = Number(payment.amount || 0);
+    sharedRows.filter((txn) => txn.sourceType === 'shared_expense' && txn.contextType === payment.contextType && txn.contextId === payment.contextId && !settledExpenseIds.has(txn.sourceId)).forEach((expense) => {
+      const outstanding = Math.max(Number(expense.receivable || 0), Number(expense.payable || 0));
+      if (outstanding > 0 && remaining >= outstanding - 0.005) { settledExpenseIds.add(expense.sourceId); remaining -= outstanding; }
+    });
+  });
+  const openContextBalances = sharedRows.reduce((map, txn) => {
+    const key = `${txn.contextType}:${txn.contextId}`;
+    if (txn.sourceType === 'shared_expense') map[key] = (map[key] || 0) + Number(txn.netBalance || 0);
+    if (txn.sourceType === 'settlement_received') map[key] = (map[key] || 0) - Number(txn.amount || 0);
+    if (txn.sourceType === 'settlement_sent') map[key] = (map[key] || 0) + Number(txn.amount || 0);
+    return map;
+  }, {});
+  const sharedExpenseTransactions = sharedRows.filter((txn) => txn.sourceType === 'shared_expense' && !settledExpenseIds.has(txn.sourceId) && Math.abs(openContextBalances[`${txn.contextType}:${txn.contextId}`] || 0) > 0.005);
 
   return (
     <div className="spending-view">
@@ -316,8 +335,7 @@ export default function ExpensesView() {
           </div>
           <Button variant="ghost" size="sm" onClick={loadShared}>Refresh</Button>
         </div>
-        {sharedError ? <p className="mt-3 text-sm text-rose-600">Unable to load shared expenses: {sharedError}</p> : !shared ? <p className="mt-3 text-sm text-slate-500">Loading shared balances...</p> : Object.keys(shared.totals || {}).length === 0 ? <p className="mt-3 text-sm text-slate-500">No shared expenses affect your Expense Manager yet.</p> : <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{Object.entries(shared.totals).map(([currency, values]) => <div key={currency} className="rounded-xl bg-white p-3 shadow-sm dark:bg-slate-900"><p className="text-xs font-semibold text-slate-500">{currency} shared</p><p className="mt-1 text-sm font-bold text-slate-900 dark:text-slate-100">Personal share {formatMoney(values.personalExpense, currency)}</p><p className="mt-1 text-xs font-medium text-slate-700 dark:text-slate-300">Cash impact {formatMoney(values.currentCashImpact || 0, currency)}</p><p className="mt-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">Receivable {formatMoney(values.receivable, currency)}</p><p className="mt-1 text-xs font-medium text-rose-700 dark:text-rose-400">Payable {formatMoney(values.payable, currency)}</p></div>)}</div>}
-        {shared?.transactions?.length > 0 && <div className="mt-4 divide-y divide-teal-100 rounded-xl bg-white dark:divide-slate-800 dark:bg-slate-900">{shared.transactions.slice(0, 4).map((txn) => <div key={txn.id} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm"><div className="min-w-0"><p className="truncate font-semibold text-slate-900 dark:text-slate-100">{txn.description}</p><p className="text-xs text-slate-500">{txn.sourceType === 'shared_expense' ? `${txn.category} · personal share` : txn.sourceType === 'settlement_sent' ? 'Settlement payment · debit' : 'Settlement repayment · credit'}</p></div><div className="shrink-0 text-right"><p className={`font-bold ${txn.sourceType === "settlement_received" ? "text-emerald-700 dark:text-emerald-400" : ""}`}>{txn.sourceType === "settlement_received" ? "+" : txn.sourceType === "settlement_sent" ? "−" : ""}{formatMoney(txn.sourceType === 'shared_expense' ? txn.personalShare : txn.amount, txn.currency)}</p>{txn.receivable > 0 && <p className="text-xs text-emerald-700">Receivable {formatMoney(txn.receivable, txn.currency)}</p>}{txn.payable > 0 && <p className="text-xs text-rose-700">Payable {formatMoney(txn.payable, txn.currency)}</p>}</div></div>)}</div>}
+        {sharedExpenseTransactions.length > 0 && <div className="mt-4 divide-y divide-teal-100 rounded-xl bg-white dark:divide-slate-800 dark:bg-slate-900">{sharedExpenseTransactions.slice(0, 4).map((txn) => { const balance = openContextBalances[`${txn.contextType}:${txn.contextId}`] || 0; return <div key={txn.id} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm"><div className="min-w-0"><p className="truncate font-semibold text-slate-900 dark:text-slate-100">{txn.description}</p><p className="text-xs text-slate-500">{txn.category} · personal share</p></div><div className="shrink-0 text-right"><p className={`font-bold ${balance > 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{balance > 0 ? 'Receivable' : 'Payable'} {formatMoney(Math.abs(balance), txn.currency)}</p></div></div>; })}</div>}
       </section>
 
       {/* Edit Modal */}
@@ -358,3 +376,4 @@ export default function ExpensesView() {
     </div>
   );
 }
+
