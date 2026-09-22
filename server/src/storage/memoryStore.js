@@ -122,6 +122,38 @@ export function createMemoryRepo(seed = {}) {
       return publicUser(next);
     },
 
+    /** Permanently remove an account and every cross-user record that points
+     * at it. Shared ledgers involving the account are removed as a unit so no
+     * orphaned participant, friendship, or settlement references remain. */
+    async deleteAccount(id) {
+      const key = String(id);
+      if (!users.has(key)) return false;
+      const relatedGroups = new Set();
+      for (const [groupId, group] of groups) {
+        const members = group.members || [];
+        const involves = group.createdBy === key || members.some((m) => String(m.userId ?? m.participantId) === key || String(m.participantId) === key);
+        if (!involves) continue;
+        if (group.createdBy === key) relatedGroups.add(groupId);
+        else groups.set(groupId, { ...group, members: members.filter((m) => String(m.userId ?? m.participantId) !== key && String(m.participantId) !== key), formerMemberIds: (group.formerMemberIds || []).filter((memberId) => String(memberId) !== key) });
+      }
+      for (const [expenseId, expense] of expenses) {
+        const participantIds = [expense.createdBy, expense.paidBy, ...(expense.participants || []), ...(expense.payers || []).map((p) => p.memberId), ...(expense.splits || []).map((s) => s.memberId)];
+        if (relatedGroups.has(expense.contextId) || participantIds.some((memberId) => String(memberId) === key)) expenses.delete(expenseId);
+      }
+      for (const [settlementId, settlement] of settlements) {
+        const ids = [settlement.createdBy, settlement.fromUserId, settlement.toUserId, ...(settlement.allocations || []).flatMap((p) => [p.fromUserId, p.toUserId])];
+        if (relatedGroups.has(settlement.contextId) || ids.some((memberId) => String(memberId) === key)) settlements.delete(settlementId);
+      }
+      for (const [groupId] of relatedGroups) groups.delete(groupId);
+      for (const [friendshipId, friendship] of friendships) if (friendship.userA === key || friendship.userB === key) friendships.delete(friendshipId);
+      for (const [requestId, request] of friendRequests) if (request.fromUserId === key || request.toUserId === key) friendRequests.delete(requestId);
+      for (const [contactId, contact] of contacts) if (contact.ownerUserId === key || contact.linkedUserId === key || contact.participantId === key) contacts.delete(contactId);
+      documents.delete(key);
+      users.delete(key);
+      touched();
+      return true;
+    },
+
     async getDocument(userId) {
       const key = String(userId);
       if (!documents.has(key)) {
@@ -392,6 +424,15 @@ export function createMemoryRepo(seed = {}) {
       if (!current) return false;
       const next = { ...current, deletedAt: new Date().toISOString(), deletedBy: deletedBy ? String(deletedBy) : null };
       expenses.set(key, next);
+      touched();
+      return true;
+    },
+
+    async purgeExpense(id) {
+      const key = String(id);
+      const existed = expenses.delete(key);
+      if (!existed) return false;
+      for (const [childId, child] of expenses) if (String(child.refundOf || '') === key || String(child.recurringSourceId || '') === key) expenses.delete(childId);
       touched();
       return true;
     },

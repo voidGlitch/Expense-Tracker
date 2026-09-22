@@ -89,9 +89,8 @@ export function expensesRoutes() {
       const context = await ledgerContext(req.repo, current.contextType, current.contextId, req.user.id);
       if (current.createdBy !== req.user.id && !context.isOwner) throw forbidden('Only the expense creator or group owner can delete this expense.');
       checkRevision(req.body?.expectedRevision, current.revision || 1);
-      const refunds = (await req.repo.listExpenses({ contextType: context.type, contextId: context.id })).filter((row) => row.refundOf === current.id);
-      if (refunds.length) throw badRequest('Delete this expense’s refunds first. Payments are kept independently.');
-      await req.repo.updateExpense(current.id, { deletedAt: new Date().toISOString(), deletedBy: req.user.id, revision: (current.revision || 1) + 1, activity: [...(current.activity || []), { action: 'deleted', userId: req.user.id, at: new Date().toISOString() }] });
+      if (req.body?.permanent === true && typeof req.repo.purgeExpense === 'function') await req.repo.purgeExpense(current.id);
+      else await req.repo.updateExpense(current.id, { deletedAt: new Date().toISOString(), deletedBy: req.user.id, revision: (current.revision || 1) + 1, activity: [...(current.activity || []), { action: 'deleted', userId: req.user.id, at: new Date().toISOString() }] });
       res.status(204).end();
     } catch (error) { next(error); }
   });

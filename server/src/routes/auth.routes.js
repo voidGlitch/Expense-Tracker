@@ -134,5 +134,17 @@ export function authRoutes() {
     }
   });
 
+  router.delete('/account', requireAuth, async (req, res, next) => {
+    try {
+      const parsed = z.object({ confirmation: z.literal('DELETE') }).safeParse(req.body ?? {});
+      if (!parsed.success) throw badRequest('Type DELETE to permanently remove this account.');
+      await req.repo.deleteAccount(req.user.id);
+      clearSessionCookie(res);
+      res.status(204).end();
+    } catch (error) {
+      next(error);
+    }
+  });
+
   return router;
 }

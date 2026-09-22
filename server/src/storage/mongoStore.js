@@ -372,6 +372,36 @@ export function createMongoRepo(
           return publicUser(user);
         },
 
+        async deleteAccount(id) {
+          const key = String(id);
+          const user = await User.findById(key).lean();
+          if (!user) return false;
+          const ownedGroups = await Group.find({ createdBy: key }, { _id: 1 }).lean();
+          const ownedGroupIds = ownedGroups.map((group) => String(group._id));
+          await Expense.deleteMany({ $or: [
+            { createdBy: key }, { paidBy: key }, { participants: key },
+            { 'payers.memberId': key }, { 'splits.memberId': key },
+            ...(ownedGroupIds.length ? [{ contextType: 'group', contextId: { $in: ownedGroupIds } }] : []),
+          ] });
+          await Settlement.deleteMany({ $or: [
+            { createdBy: key }, { fromUserId: key }, { toUserId: key },
+            { 'allocations.fromUserId': key }, { 'allocations.toUserId': key },
+            ...(ownedGroupIds.length ? [{ contextType: 'group', contextId: { $in: ownedGroupIds } }] : []),
+          ] });
+          await Promise.all([
+            Doc.deleteOne({ userId: key }),
+            Friendship.deleteMany({ $or: [{ userA: key }, { userB: key }] }),
+            FriendRequest.deleteMany({ $or: [{ fromUserId: key }, { toUserId: key }] }),
+            Contact.deleteMany({ $or: [{ ownerUserId: key }, { linkedUserId: key }, { participantId: key }] }),
+            Group.deleteMany({ createdBy: key }),
+            Group.updateMany({ 'members.userId': key }, { $pull: { members: { userId: key } } }),
+            Group.updateMany({ 'members.participantId': key }, { $pull: { members: { participantId: key } } }),
+            Group.updateMany({ formerMemberIds: key }, { $pull: { formerMemberIds: key } }),
+            User.deleteOne({ _id: key }),
+          ]);
+          return true;
+        },
+
         async getDocument(userId) {
           const existing = await Doc.findOne({
             userId: String(userId),
@@ -703,6 +733,12 @@ export function createMongoRepo(
             { returnDocument: 'after' },
           ).lean();
           return Boolean(updated);
+        },
+
+        async purgeExpense(id) {
+          const key = String(id);
+          const result = await Expense.deleteMany({ $or: [{ _id: key }, { refundOf: key }, { recurringSourceId: key }] });
+          return result.deletedCount > 0;
         },
 
         async listExpensesForContexts({ contextType, contextIds = [], includeDeleted = false } = {}) {

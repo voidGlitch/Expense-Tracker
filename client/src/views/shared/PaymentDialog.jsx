@@ -40,11 +40,17 @@ export default function PaymentDialog({ context, friend, contexts, me, initial, 
     event.preventDefault(); if (busy) return;
     setBusy(true); setError('');
     try {
-      if (isAll) await saveShared(me.id, 'settleAll', [{ friendId: friend.id, currency, amount: Number(amount), date, method, note, expectedRevision: friend.revision, confirmOffset: confirmed, idempotencyKey: key }]);
+      // Refresh the ledger immediately before writing. The dialog can stay
+      // open while another device records a payment, so its original revision
+      // is not safe to submit.
+      const fresh = await Promise.resolve(typeof api.getSharedOverview === 'function' ? api.getSharedOverview() : null).catch(() => null);
+      const freshFriend = fresh.friends?.find((row) => row.id === friend?.id);
+      const freshContext = fresh.contexts?.find((row) => row.id === selectedContext?.id);
+      if (isAll) await saveShared(me.id, 'settleAll', [{ friendId: friend.id, currency, amount: Number(amount), date, method, note, expectedRevision: freshFriend?.revision ?? friend.revision, confirmOffset: confirmed, idempotencyKey: key }]);
       else {
         const payload = { fromUserId: from, toUserId: to, amount: Number(amount), currency, date, method, note, contextType: selectedContext.type, contextId: selectedContext.id, confirmUnusualPayment: confirmed, idempotencyKey: key };
         if (initial) await saveShared(me.id, 'updateSettlement', [initial.id, { ...payload, expectedRevision: initial.revision || 1 }]);
-        else await saveShared(me.id, 'createSettlement', [{ ...payload, expectedLedgerRevision: selectedContext.revision }]);
+        else await saveShared(me.id, 'createSettlement', [{ ...payload, expectedLedgerRevision: freshContext?.revision ?? selectedContext.revision }]);
       }
       done();
     } catch (cause) { setError([cause.message, ...Object.values(cause.fieldErrors || {})].join(' ')); }

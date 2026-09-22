@@ -23,6 +23,8 @@ export default function SettingsView() {
   const [name, setName] = useState(user?.name || '');
   const [renaming, setRenaming] = useState(false);
   const [renameError, setRenameError] = useState(null);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
 
   const [importError, setImportError] = useState(null);
   const [importing, setImporting] = useState(false);
@@ -58,6 +60,19 @@ export default function SettingsView() {
       setRenaming(false);
     }
   }, [name]);
+
+  const handleDeleteAccount = useCallback(async () => {
+    if (window.prompt('This permanently deletes your account and all linked data. Type DELETE to continue.') !== 'DELETE') return;
+    setDeletingAccount(true);
+    setDeleteError(null);
+    try {
+      await api.deleteAccount();
+      await signOut();
+    } catch (err) {
+      setDeleteError(err.message || 'Account deletion failed.');
+      setDeletingAccount(false);
+    }
+  }, [signOut]);
 
   // JSON Export
   const handleExportJson = useCallback(async () => {
@@ -144,6 +159,10 @@ export default function SettingsView() {
             <Button variant="ghost" onClick={signOut} className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30">
               Sign out of account
             </Button>
+            <Button variant="danger" onClick={handleDeleteAccount} busy={deletingAccount} className="ml-2">
+              Delete account permanently
+            </Button>
+            {deleteError && <p className="mt-2 text-xs text-rose-600">{deleteError}</p>}
           </div>
         </div>
       </div>

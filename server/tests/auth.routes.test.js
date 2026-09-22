@@ -93,6 +93,17 @@ describe('POST /api/auth/login', () => {
 });
 
 describe('session', () => {
+  it('requires explicit confirmation and permanently removes the account data', async () => {
+    const { app, repo, agent, user } = await signedInAgent();
+    await repo.createContact({ ownerUserId: user.id, name: 'Guest', email: 'guest@example.com' });
+    expect((await agent.delete('/api/auth/account').send({ confirmation: 'remove' })).status).toBe(400);
+    const response = await agent.delete('/api/auth/account').send({ confirmation: 'DELETE' });
+    expect(response.status).toBe(204);
+    expect(await repo.findUserById(user.id)).toBeNull();
+    expect(await repo.getDocument(user.id).catch(() => null)).toBeNull();
+    expect((await agent.get('/api/auth/me')).body.user).toBeNull();
+  });
+
   it('GET /api/auth/me returns null when signed out and the user when signed in', async () => {
     const { app, agent } = await signedInAgent();
     const anonymous = await request(app).get('/api/auth/me');

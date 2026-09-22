@@ -80,6 +80,7 @@ export const api = {
   logout: () => request('/auth/logout', { method: 'POST', body: {} }),
   me: (signal) => request('/auth/me', { signal }),
   rename: (name) => request('/auth/profile', { method: 'PATCH', body: { name } }),
+  deleteAccount: () => request('/auth/account', { method: 'DELETE', body: { confirmation: 'DELETE' } }),
 
   searchUsers: (query = '', signal) => request(`/users/search?q=${encodeURIComponent(query)}`, { signal }),
   getUser: (id) => request(`/users/${encodeURIComponent(id)}`),
