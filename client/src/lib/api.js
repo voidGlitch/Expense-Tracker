@@ -107,7 +107,15 @@ export const api = {
   getSettlementPlan: (id) => request(`/groups/${encodeURIComponent(id)}/settlement-plan`),
   createExpense: (payload) => request('/expenses', { method: 'POST', body: payload }),
   getSharedOverview: () => request('/shared/overview'),
-  settleAll: (payload) => request('/settlements/settle-all', { method: 'POST', body: payload }),
+  settleAll: async (payload) => {
+    try { return await request('/settlements/settle-all', { method: 'POST', body: payload }); }
+    catch (error) {
+      if (error.status !== 409) throw error;
+      const overview = await request('/shared/overview');
+      const friend = overview.friends?.find((row) => row.id === payload.friendId);
+      return request('/settlements/settle-all', { method: 'POST', body: { ...payload, expectedRevision: friend?.revision } });
+    }
+  },
   updateSettlement: (id, payload) => request(`/settlements/${encodeURIComponent(id)}`, { method: 'PATCH', body: payload }),
   restoreExpense: (id, payload) => request(`/expenses/${encodeURIComponent(id)}/restore`, { method: 'POST', body: payload }),
   commentOnExpense: (id, payload) => request(`/expenses/${encodeURIComponent(id)}/comments`, { method: 'POST', body: payload }),
@@ -115,7 +123,15 @@ export const api = {
   downloadSharedCsv: (type, id) => download(`/shared/export?contextType=${encodeURIComponent(type)}&contextId=${encodeURIComponent(id)}`, 'shared-expenses.csv'),
   updateExpense: (id, payload) => request(`/expenses/${encodeURIComponent(id)}`, { method: 'PATCH', body: payload }),
   deleteExpense: (id, payload) => request(`/expenses/${encodeURIComponent(id)}`, { method: 'DELETE', body: payload }),
-  createSettlement: (payload) => request('/settlements', { method: 'POST', body: payload }),
+  createSettlement: async (payload) => {
+    try { return await request('/settlements', { method: 'POST', body: payload }); }
+    catch (error) {
+      if (error.status !== 409) throw error;
+      const overview = await request('/shared/overview');
+      const context = overview.contexts?.find((row) => row.id === payload.contextId);
+      return request('/settlements', { method: 'POST', body: { ...payload, expectedLedgerRevision: context?.revision } });
+    }
+  },
   deleteSettlement: (id, payload) => request(`/settlements/${encodeURIComponent(id)}`, { method: 'DELETE', body: payload }),
   getSharedSummary: (monthId, signal) => request(`/shared/summary${monthId ? `?monthId=${encodeURIComponent(monthId)}` : ''}`, { signal }),
 
