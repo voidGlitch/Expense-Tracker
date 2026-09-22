@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pencil, Plus, Receipt, Search, Trash2, ArrowUpRight, ArrowDownRight, Filter } from 'lucide-react';
 import {
   deleteTransaction,
+  budgetBreakdown,
   formatDayLabel,
   formatMonthLabel,
   isDiscretionaryCategory,
@@ -118,6 +119,7 @@ export default function ExpensesView() {
   // Shared cash transfers belong to the separate ledger, not daily allowance.
   const currentSpent = summary.loggedExpenses;
   const currentRemaining = budgetSummary.remaining;
+  const sharedLogged = (shared?.transactions || []).filter((txn) => txn.sourceType === 'shared_expense' && String(txn.date || '').startsWith(activeMonthId || '')).reduce((sum, txn) => sum + Number(txn.personalShare || 0), 0);
 
   return (
     <div className="spending-view">
@@ -129,12 +131,14 @@ export default function ExpensesView() {
           <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Pool Spend</span>
           <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100 tnum">{money(budgetSummary.discretionarySpent)}</p>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Day-to-day spending</p>
+          <details className="mt-2 text-xs"><summary className="cursor-pointer font-semibold text-indigo-600">View breakdown</summary><div className="mt-2 space-y-1">{budgetBreakdown(month).spending.map((row) => <div key={row.label} className="flex justify-between gap-3"><span>{row.label}</span><span>{money(row.amount)}</span></div>)}</div></details>
         </div>
 
         <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-5 shadow-sm">
           <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">All Logged</span>
           <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100 tnum">{money(currentSpent)}</p>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Includes your share of shared expenses</p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Personal: {money(Math.max(0, currentSpent - sharedLogged))} · Shared: {money(sharedLogged)}</p>
+          <details className="mt-2 text-xs"><summary className="cursor-pointer font-semibold text-indigo-600">View breakdown</summary><div className="mt-2 space-y-1"><div className="flex justify-between"><span>Personal expenses</span><span>{money(Math.max(0, currentSpent - sharedLogged))}</span></div><div className="flex justify-between"><span>Shared expenses</span><span>{money(sharedLogged)}</span></div></div></details>
         </div>
 
         <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-5 shadow-sm">
