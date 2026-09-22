@@ -70,7 +70,7 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
   if (!shouldRender) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center p-0 sm:items-center sm:p-4">
       <div
         className={`fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm transition-opacity duration-200 ${
           mounted ? 'opacity-100' : 'opacity-0'
@@ -84,7 +84,7 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
-        className={`relative flex max-h-[92vh] w-full flex-col overflow-hidden bg-white shadow-2xl shadow-indigo-900/10 outline-none
+        className={`relative flex max-h-[92dvh] w-full flex-col overflow-hidden bg-white shadow-2xl shadow-indigo-900/10 outline-none
           rounded-t-[2.5rem] sm:rounded-[2rem] dark:bg-slate-900 dark:shadow-none dark:border dark:border-slate-800
           transition-all duration-200
           ${mounted ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95'}
@@ -103,7 +103,7 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="flex-shrink-0 -mr-2 -mt-2 rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300 transition-colors"
+            className="flex-shrink-0 -mr-2 -mt-2 rounded-full p-3 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300 transition-colors"
           >
             <X size={20} aria-hidden="true" />
           </button>
@@ -114,7 +114,7 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
         </div>
 
         {footer && (
-          <footer className="flex flex-shrink-0 flex-col sm:flex-row sm:items-center justify-end gap-3 px-6 py-5 mt-2 bg-slate-50/50 dark:bg-slate-950/30 border-t border-slate-100 dark:border-slate-800/80">
+          <footer className="flex flex-shrink-0 flex-col sm:flex-row sm:items-center justify-end gap-3 px-6 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] mt-2 bg-slate-50/50 dark:bg-slate-950/30 border-t border-slate-100 dark:border-slate-800/80">
             {footer}
           </footer>
         )}

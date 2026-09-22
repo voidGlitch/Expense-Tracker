@@ -1,0 +1,40 @@
+
+.spending-view { display:flex; flex-direction:column; gap:20px; }
+.spending-title h1 { font-size:24px; font-weight:750; }
+.spending-title p { margin-top:4px; font-size:13px; color:#64748b; }
+.spending-stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+.spending-stats > div { min-width:0; overflow-wrap:anywhere; }
+.spending-entries { order:1; }
+.spending-breakdown { order:2; }
+.spending-shared { order:3; }
+.spending-entry { flex-wrap:wrap; }
+.spending-entry-origin { flex-basis:100%; }
+.spending-entry-amount { margin-left:auto; }
+@media(max-width:640px) {
+ .spending-view { gap:16px; }
+ .spending-title h1 { font-size:21px; }
+ .spending-stats { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+ .spending-stats > div { padding:12px; border-radius:12px; }
+ .spending-stats > div > span { font-size:10px; letter-spacing:.04em; }
+ .spending-stats > div > p:first-of-type { font-size:20px; margin-top:6px; }
+ .spending-stats > div:last-child { grid-column:1 / -1; grid-row:1; }
+ .spending-stats > div:last-child > p:first-of-type { font-size:28px; }
+ .spending-stats > div > p:last-child { line-height:1.5; }
+ .spending-filters { display:grid; grid-template-columns:minmax(0,1fr); gap:10px; padding:12px; }
+ .spending-filters > div { min-width:0; }
+ .spending-filters > div:last-child { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+ .spending-filters input, .spending-filters select { width:100%; min-width:0; min-height:44px; font-size:16px; }
+ .spending-entries button, .spending-shared button { min-height:44px; }
+ .spending-entry { gap:10px; padding:12px; }
+ .spending-entry > div:first-child { flex-basis:100%; }
+ .spending-entry-amount { width:100%; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+ .spending-entry-origin { margin-top:0; }
+ .spending-breakdown details { padding:12px; border-radius:12px; }
+ .spending-breakdown summary { display:grid; grid-template-columns:minmax(0,1fr) auto; column-gap:8px; align-items:center; min-height:44px; }
+ .spending-breakdown summary > span:first-of-type { margin:0; font-size:16px; overflow-wrap:anywhere; }
+ .spending-breakdown summary > span:last-child { grid-column:1 / -1; }
+ .spending-shared { padding:12px; }
+ .spending-shared > div:first-child > div { flex:1; min-width:0; }
+}
+
+@media(max-width:360px) { .spending-filters > div:last-child { grid-template-columns:minmax(0,1fr); } }

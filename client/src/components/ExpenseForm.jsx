@@ -17,7 +17,7 @@ import {
 import { useStore } from '../state/StoreContext.jsx';
 import { Modal } from './Modal.jsx';
 import { Button, Field, MoneyInput, Segmented, Select, TextInput, Badge, Banner } from './ui.jsx';
-import { ArrowDownRight, ArrowUpRight, Info } from 'lucide-react';
+import { AlertTriangle, ArrowDownRight, ArrowUpRight, Info } from 'lucide-react';
 
 const TYPE_OPTIONS = [
   { id: TRANSACTION_TYPE.EXPENSE, label: 'Spent' },
