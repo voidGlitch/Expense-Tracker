@@ -61,6 +61,17 @@ export default function ExpensesView() {
 
   const transactions = month?.transactions || [];
   const sharedPersonalEntries = useMemo(() => [...sharedExpenseEntries(shared, activeMonthId), ...sharedRepaymentEntries(shared, activeMonthId)], [shared, activeMonthId]);
+  const repaymentTotals = useMemo(() => {
+    const repayments = (shared?.transactions || []).filter((txn) => String(txn.date || '').startsWith(activeMonthId || '') && Number(txn.amount) > 0);
+    const received = repayments.filter((txn) => txn.sourceType === 'settlement_received').reduce((total, txn) => total + Number(txn.amount || 0), 0);
+    const sent = repayments.filter((txn) => txn.sourceType === 'settlement_sent').reduce((total, txn) => total + Number(txn.amount || 0), 0);
+    return { received, sent };
+  }, [shared, activeMonthId]);
+  const budgetSummary = useMemo(() => summary ? ({
+    ...summary,
+    discretionarySpent: summary.discretionarySpent - repaymentTotals.received + repaymentTotals.sent,
+    remaining: summary.remaining + repaymentTotals.received - repaymentTotals.sent,
+  }) : summary, [summary, repaymentTotals]);
   const visibleTransactions = useMemo(() => [...transactions, ...sharedPersonalEntries], [transactions, sharedPersonalEntries]);
 
   const filtered = useMemo(() => {
@@ -98,7 +109,7 @@ export default function ExpensesView() {
   // These are the personal budget totals used by Home and the Excel export.
   // Shared cash transfers belong to the separate ledger, not daily allowance.
   const currentSpent = summary.loggedExpenses;
-  const currentRemaining = summary.remaining;
+  const currentRemaining = budgetSummary.remaining;
 
   return (
     <div className="spending-view">
@@ -108,7 +119,7 @@ export default function ExpensesView() {
       <div className="spending-stats">
         <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-5 shadow-sm">
           <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Pool Spend</span>
-          <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100 tnum">{money(summary.discretionarySpent)}</p>
+          <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100 tnum">{money(budgetSummary.discretionarySpent)}</p>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Day-to-day spending</p>
         </div>
 
@@ -270,7 +281,7 @@ export default function ExpensesView() {
                           </div>
                         )}
                       </div>
-                      {txn.shared && txn.sharedDetail && <p className="spending-entry-origin mt-1 text-xs text-slate-500">{txn.repayment ? "Repayment · excluded from income and spending" : `Personal share from ${txn.sharedDetail.contextTitle || "shared ledger"}`}</p>}
+                      {txn.shared && txn.sharedDetail && <p className="spending-entry-origin mt-1 text-xs text-slate-500">{txn.repayment ? "Repayment · excluded from income; affects Discretionary spent" : `Personal share from ${txn.sharedDetail.contextTitle || "shared ledger"}`}</p>}
                     </div>
                   ))}
                 </div>
@@ -280,7 +291,7 @@ export default function ExpensesView() {
         )}
       </div>
 
-      <div className="spending-breakdown"><BudgetBreakdown month={month} summary={summary} money={money} /></div>
+      <div className="spending-breakdown"><BudgetBreakdown month={month} summary={budgetSummary} money={money} repaymentCredits={repaymentTotals.received} repaymentDebits={repaymentTotals.sent} /></div>
 
       {/* Derived from the authoritative shared-expense ledger. These values are
           deliberately separate from normal personal transactions: a bill you
@@ -289,12 +300,12 @@ export default function ExpensesView() {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <h2 className="font-bold text-slate-900 dark:text-slate-100">Shared expense position</h2>
-            <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">Your share is included in spending above. Repayments only change what you owe or are owed.</p>
+            <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">Your share is included in spending above. Received repayments show as credits; sent repayments show as debits.</p>
           </div>
           <Button variant="ghost" size="sm" onClick={loadShared}>Refresh</Button>
         </div>
         {sharedError ? <p className="mt-3 text-sm text-rose-600">Unable to load shared expenses: {sharedError}</p> : !shared ? <p className="mt-3 text-sm text-slate-500">Loading shared balances...</p> : Object.keys(shared.totals || {}).length === 0 ? <p className="mt-3 text-sm text-slate-500">No shared expenses affect your Expense Manager yet.</p> : <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{Object.entries(shared.totals).map(([currency, values]) => <div key={currency} className="rounded-xl bg-white p-3 shadow-sm dark:bg-slate-900"><p className="text-xs font-semibold text-slate-500">{currency} shared</p><p className="mt-1 text-sm font-bold text-slate-900 dark:text-slate-100">Personal share {formatMoney(values.personalExpense, currency)}</p><p className="mt-1 text-xs font-medium text-slate-700 dark:text-slate-300">Cash impact {formatMoney(values.currentCashImpact || 0, currency)}</p><p className="mt-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">Receivable {formatMoney(values.receivable, currency)}</p><p className="mt-1 text-xs font-medium text-rose-700 dark:text-rose-400">Payable {formatMoney(values.payable, currency)}</p></div>)}</div>}
-        {shared?.transactions?.length > 0 && <div className="mt-4 divide-y divide-teal-100 rounded-xl bg-white dark:divide-slate-800 dark:bg-slate-900">{shared.transactions.slice(0, 4).map((txn) => <div key={txn.id} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm"><div className="min-w-0"><p className="truncate font-semibold text-slate-900 dark:text-slate-100">{txn.description}</p><p className="text-xs text-slate-500">{txn.sourceType === 'shared_expense' ? `${txn.category} · personal share` : txn.sourceType === 'settlement_sent' ? 'Settlement payment · not a new expense' : 'Settlement repayment · not income'}</p></div><div className="shrink-0 text-right"><p className={`font-bold ${txn.sourceType === "settlement_received" ? "text-emerald-700 dark:text-emerald-400" : ""}`}>{txn.sourceType === "settlement_received" ? "+" : txn.sourceType === "settlement_sent" ? "−" : ""}{formatMoney(txn.sourceType === 'shared_expense' ? txn.personalShare : txn.amount, txn.currency)}</p>{txn.receivable > 0 && <p className="text-xs text-emerald-700">Receivable {formatMoney(txn.receivable, txn.currency)}</p>}{txn.payable > 0 && <p className="text-xs text-rose-700">Payable {formatMoney(txn.payable, txn.currency)}</p>}</div></div>)}</div>}
+        {shared?.transactions?.length > 0 && <div className="mt-4 divide-y divide-teal-100 rounded-xl bg-white dark:divide-slate-800 dark:bg-slate-900">{shared.transactions.slice(0, 4).map((txn) => <div key={txn.id} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm"><div className="min-w-0"><p className="truncate font-semibold text-slate-900 dark:text-slate-100">{txn.description}</p><p className="text-xs text-slate-500">{txn.sourceType === 'shared_expense' ? `${txn.category} · personal share` : txn.sourceType === 'settlement_sent' ? 'Settlement payment · debit' : 'Settlement repayment · credit'}</p></div><div className="shrink-0 text-right"><p className={`font-bold ${txn.sourceType === "settlement_received" ? "text-emerald-700 dark:text-emerald-400" : ""}`}>{txn.sourceType === "settlement_received" ? "+" : txn.sourceType === "settlement_sent" ? "−" : ""}{formatMoney(txn.sourceType === 'shared_expense' ? txn.personalShare : txn.amount, txn.currency)}</p>{txn.receivable > 0 && <p className="text-xs text-emerald-700">Receivable {formatMoney(txn.receivable, txn.currency)}</p>}{txn.payable > 0 && <p className="text-xs text-rose-700">Payable {formatMoney(txn.payable, txn.currency)}</p>}</div></div>)}</div>}
       </section>
 
       {/* Edit Modal */}

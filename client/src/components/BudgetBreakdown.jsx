@@ -1,19 +1,22 @@
 import { budgetBreakdown } from '@expense/shared';
 
-export function BudgetBreakdown({ month, summary, money }) {
+export function BudgetBreakdown({ month, summary, money, repaymentCredits = 0, repaymentDebits = 0 }) {
   const rows = budgetBreakdown(month);
+  const spendingRows = [...rows.spending];
+  if (repaymentCredits) spendingRows.push({ label: 'Repayments received (credit)', amount: -repaymentCredits });
+  if (repaymentDebits) spendingRows.push({ label: 'Repayments sent (debit)', amount: repaymentDebits });
   const sections = [
     { title: 'Total commitments', amount: summary.commitments, rows: rows.commitments,
       explanation: 'Money reserved for bills, recurring deposits, deficit recovery and savings. Confirmed bills use the amount paid; pending bills use their estimate.' },
     { title: 'Discretionary pool', amount: summary.pool, rows: rows.pool,
       explanation: 'Your income after commitments. This is the amount available for day-to-day spending.' },
-    { title: 'Discretionary spent', amount: summary.discretionarySpent, rows: rows.spending,
-      explanation: 'Personal expenses and your own shared-expense shares, grouped by category. Income, non-pool categories and repayments are excluded.' },
+    { title: 'Discretionary spent', amount: summary.discretionarySpent, rows: spendingRows,
+      explanation: 'Personal expenses and your own shared-expense shares, grouped by category. Received repayments reduce this total as credits; sent repayments increase it as debits.' },
   ];
   return <section aria-label="Budget breakdown" className="space-y-3">
     <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">How your budget is calculated</h2>
-    <div className="grid items-start gap-3 lg:grid-cols-3">
-      {sections.map((section) => <details key={section.title} className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+    <div className="grid items-stretch gap-3 lg:grid-cols-3">
+      {sections.map((section) => <details key={section.title} className="h-full rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
         <summary className="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-200">
           {section.title}<span className="mt-2 block text-xl font-bold text-slate-900 dark:text-slate-100">{money(section.amount)}</span>
           <span className="mt-1 block text-xs font-normal text-indigo-600 dark:text-indigo-300">View breakdown</span>

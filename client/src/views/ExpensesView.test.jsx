@@ -150,7 +150,7 @@ it('shows a 10,000 repayment as a credit without increasing income or changing r
   expect(entry.textContent).toContain('+₹10,000');
   expect(entry.textContent).toContain('Credit · repayment');
   expect(screen.getByText('All Logged').nextElementSibling.textContent).toBe('money:0');
-  expect(screen.getByText('Remaining').nextElementSibling.textContent).toBe('money:1000');
+  expect(screen.getByText('Remaining').nextElementSibling.textContent).toBe('money:11000');
   expect(screen.queryByRole('button', { name: 'Edit Repayment received' })).toBeNull();
   fireEvent.change(screen.getByLabelText('Filter by type'), { target: { value: 'income' } });
   expect(screen.queryByText('Repayment received')).toBeNull();

@@ -4,9 +4,9 @@
 .spending-title p { margin-top:4px; font-size:13px; color:#64748b; }
 .spending-stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
 .spending-stats > div { min-width:0; overflow-wrap:anywhere; }
-.spending-entries { order:1; }
+.spending-shared { order:1; }
 .spending-breakdown { order:2; }
-.spending-shared { order:3; }
+.spending-entries { order:3; }
 .spending-entry { flex-wrap:wrap; }
 .spending-entry-origin { flex-basis:100%; }
 .spending-entry-amount { margin-left:auto; }
