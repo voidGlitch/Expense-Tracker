@@ -7,9 +7,10 @@ export function sharedBudgetEntries(expenses, userId, monthId, currency) {
   return expenses.flatMap((expense) => {
     if (expense.deletedAt || seen.has(expense.id) || expense.currency !== currency || !expense.date?.startsWith(monthId)) return [];
     seen.add(expense.id);
-    const share = participantShares({ ...expense, splits: expenseSplits(expense) }).find((row) => row.memberId === userId)?.owedShare || 0;
-    if (!share) return [];
-    return [{ id: `shared:${expense.id}:${userId}`, sourceId: expense.id, sourceType: 'shared_expense', shared: true, date: expense.date, type: 'expense', amount: share, category: `${expense.description || expense.category || 'Shared expense'} (shared expense)`, note: expense.description, currency: expense.currency }];
+    const mine = participantShares({ ...expense, splits: expenseSplits(expense) }).find((row) => row.memberId === userId);
+    const paid = mine?.paidShare || 0;
+    if (!paid) return [];
+    return [{ id: `shared:${expense.id}:${userId}`, sourceId: expense.id, sourceType: 'shared_expense', shared: true, date: expense.date, type: 'expense', amount: paid, category: `${expense.description || expense.category || 'Shared expense'} (shared expense)`, note: expense.description, currency: expense.currency }];
   });
 }
 export function withSharedBudget(month, entries = []) {

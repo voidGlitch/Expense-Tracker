@@ -3,8 +3,6 @@ import { budgetBreakdown } from '@expense/shared';
 export function BudgetBreakdown({ month, summary, money, repaymentCredits = 0, repaymentDebits = 0 }) {
   const rows = budgetBreakdown(month);
   const spendingRows = [...rows.spending];
-  if (repaymentCredits) spendingRows.push({ label: 'Repayments received (credit)', amount: -repaymentCredits });
-  if (repaymentDebits) spendingRows.push({ label: 'Repayments sent (debit)', amount: repaymentDebits });
   const sections = [
     { title: 'Total commitments', amount: summary.commitments, rows: rows.commitments,
       explanation: 'Money reserved for bills, recurring deposits, deficit recovery and savings. Confirmed bills use the amount paid; pending bills use their estimate.' },

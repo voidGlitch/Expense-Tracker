@@ -57,17 +57,23 @@ describe('complete shared accounting', () => {
     expect(summary.perCurrency.INR.netBalance).toBe(50);
     expect(summary.perCurrency.USD.netBalance).toBe(25);
   });
-  it('keeps budget at 5250 before, during and after repayments; refunds reverse consumption', () => {
+  it('charges the payer cash and charges the other person only on settlement', () => {
     const dinner = expense({ amount: 1500, participants: ['a', 'b'], category: 'Entertainment' });
     const month = { id: '2026-09', income: 7000, bills: [], transactions: [{ type: 'expense', category: 'Groceries', amount: 1000 }] };
     const projected = () => withSharedBudget(month, sharedBudgetEntries([dinner, dinner], 'a', month.id, 'INR'));
     for (const settlements of [[], [{ fromUserId: 'b', toUserId: 'a', amount: 50, currency: 'INR' }], [{ fromUserId: 'b', toUserId: 'a', amount: 750, currency: 'INR' }]]) {
-      expect(monthSummary(projected()).remaining).toBe(5250);
-      expect(monthSummary(projected()).loggedExpenses).toBe(1750);
+      expect(monthSummary(projected()).remaining).toBe(4500);
+      expect(monthSummary(projected()).loggedExpenses).toBe(2500);
       expect(netBalancesObject([dinner], settlements).a).toBe(750 - (settlements[0]?.amount || 0));
     }
     const refund = expense({ amount: 500, kind: 'refund', refundOf: dinner.id, participants: ['a', 'b'] });
-    expect(monthSummary(withSharedBudget(month, sharedBudgetEntries([dinner, refund], 'a', month.id, 'INR'))).remaining).toBe(5500);
+    expect(monthSummary(withSharedBudget(month, sharedBudgetEntries([dinner, refund], 'a', month.id, 'INR'))).remaining).toBe(5000);
+  });
+  it('does not charge a non-payer until they record a settlement', () => {
+    const dinner = expense({ amount: 1500, paidBy: 'b', participants: ['a', 'b'], category: 'Entertainment' });
+    const month = { id: '2026-09', income: 7000, bills: [], transactions: [{ type: 'expense', category: 'Groceries', amount: 1000 }] };
+    expect(sharedBudgetEntries([dinner], 'a', month.id, 'INR')).toHaveLength(0);
+    expect(sharedBudgetEntries([dinner], 'b', month.id, 'INR')[0].amount).toBe(1500);
   });
   it('anchors recurring month ends and leap years', () => {
     expect(recurringDates('2026-01-31', 'monthly', '2026-04-30')).toEqual(['2026-02-28', '2026-03-31', '2026-04-30']);
